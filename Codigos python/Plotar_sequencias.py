@@ -90,14 +90,14 @@ def plotar_trajetoria(seq = [3, 3, 3, 1, 4, 1, 4, 1, 4, 3, 3, 3], individuo = '1
     sequencia = []
     for i, num in enumerate(seq):
         match num:
-            case 2:
+            case 1:
                 # Movimento para Direita
                 y.append(y[-1])
                 x.append(x[-1]+10)
                 sequencia.append('⮕')
                 #print('⮕')
                 pass
-            case 1:
+            case 2:
                 #Movimento para Esquerda
                 y.append(y[-1])
                 x.append(x[-1]-10)
@@ -249,4 +249,6 @@ def plot_comparacao(gabarito = [], seq = [], score_parcial = 0, score_total = 0)
 #%%
 plot_comparacao(gabarito = [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4],seq= [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
 
+# %% 
+plotar_trajetoria([3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
 # %%

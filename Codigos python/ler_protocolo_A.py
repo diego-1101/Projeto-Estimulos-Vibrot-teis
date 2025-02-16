@@ -244,6 +244,194 @@ for i, num in enumerate(teste['Número da Trajetória']):
                            score_total=score_total_uns)
 
 
-# %% 
+# %% Ideia 3- Comparação de padrão de imagem 
+def rotate(array):
+    """Recebe uma matriz e rotaciona ela no sentido anti-horário
 
+    Args:
+        array (list): array que você quer rotacionar
+
+    Returns:
+        rotArr (list): array rotacionado no sentido anti-horário
+    """
+    '''
+    
+    '''
+    import numpy as np
+
+    # tamanho de linhas e colunas da matriz rotacionada
+    L,C = len(array), len(array[0]) 
+
+    # criando a matriz que irá conter o resultado
+    rotArr = [[None]*L for _ in range(C)]
+
+    # rotacionando o array
+    for c in range(C):
+        for l in range(L-1,-1,-1):
+            rotArr[C-c-1][l] = array[l][c]
+    
+    return np.array(rotArr)
+
+def traj_to_point(traj =[]):
+    """Decodifica a trajetória de números para pontos em um sistema de coordenadas (x,y)
+
+    Args:
+        traj (list, optional): trajetória que você quer decodificar. Defaults to [].
+
+    Returns:
+        x: vetor de posições em x
+        y: vetor de posições em y
+        sequencia: sequência em forma de flechas
+    """
+
+    
+    # Vetores contendo todas as posições x e y 
+    x = [0]
+    y = [0]
+
+    #sequencia em setas para um print amigável
+    sequencia = []
+
+    for num in traj:
+        match num:
+            case 1:
+                # Movimento para Direita
+                y.append(y[-1])
+                x.append(x[-1]+1)
+                sequencia.append('⮕')
+                #print('⮕')
+                pass
+            case 2:
+                #Movimento para Esquerda
+                y.append(y[-1])
+                x.append(x[-1]-1)
+                sequencia.append('⬅')
+                #print('⬅')
+                pass
+            case 3:
+                # Movimento para Cima 
+                y.append(y[-1]+1)
+                x.append(x[-1])
+                sequencia.append('⬆')
+                #print('⬆')
+                pass
+            case 4:
+                #Movimento para Baixo
+                y.append(y[-1]-1)
+                x.append(x[-1])
+                sequencia.append('⬇')
+                #print('⬇')
+                pass
+            case 5:
+                # Movimento Diagonal esq->dir para cima
+                y.append(y[-1]+1)
+                x.append(x[-1]+1)
+                sequencia.append('⬈')
+                #print('⬈')
+                pass
+            case 6:
+                #Movimento Diagonal dir->esq para baixo
+                y.append(y[-1]-1)
+                x.append(x[-1]-1)
+                sequencia.append('⬋')
+                #print('⬋')
+                pass
+            case 7:
+                # Movimento Diagonal dir->esq para cima
+                y.append(y[-1]+1)
+                x.append(x[-1]-11)
+                sequencia.append('⬉')
+                #print('⬉')
+                pass
+            case 8:
+                #Movimento Diagonal esq->dir para baixo
+                y.append(y[-1]-1)
+                x.append(x[-1]+1)
+                sequencia.append('⬊')
+                #print('⬊')
+                pass
+            case 9:
+                #Parado
+                y.append(y[-1])
+                x.append(x[-1])
+                sequencia.append('Parado')
+                #print('Parado')
+                pass
+    
+    return x,y,sequencia
+
+def comparar_imagem(seq1=[], seq2=[]):
+    """Compara espacialmente duas sequencias
+
+    Args:
+        seq1 (list): sequencia executada pelo individuo. Defaults to [].
+        seq2 (list): gabarito. Defaults to [].
+    """
+    import numpy as np 
+    import matplotlib.pyplot as plt
+    
+    #Pegando os vetores x e y de cada sequência
+    x1,y1,_= traj_to_point(seq1)
+    x2,y2,_= traj_to_point(seq2)
+
+    # Verificando qual o tamanho máximo explorado na sequência para fazer posteriormente a matriz de zeros
+    _,contx1 = np.unique(x1, return_counts=True)
+    _,conty1= np.unique(y1, return_counts=True)
+    _,contx2 = np.unique(x2, return_counts=True)
+    _,conty2= np.unique(y2, return_counts=True)
+
+    tamanho = np.max(np.concatenate((contx1,conty1,contx2,conty2)))
+    
+    #criando as sequências que vão ser a imagem binarizada
+    v1_bin = np.zeros((tamanho+1,tamanho+1)) 
+    v2_bin = np.zeros((tamanho+1,tamanho+1))
+
+    #colocando os 1's de acordo com a trajetória
+    for i in zip(x1,y1):
+        v1_bin[i[0]][i[1]] = 1
+
+    for i in zip(x2,y2):
+        v2_bin[i[0]][i[1]] = 1
+    
+    #rotacionando as matrizes para ficar de um jeito amigável para printar
+    v1_bin = rotate(v1_bin)
+    v2_bin = rotate(v2_bin)
+    print("Trajetória Binarizada Sequência1 x Sequência2:")
+    #print(v1_bin)
+    plt.figure()
+    plt.imshow(v1_bin, cmap='gray_r', interpolation='nearest')
+    plt.axis('off')
+    #print(v2_bin)
+    plt.figure()
+    plt.imshow(v2_bin, cmap='gray_r', interpolation='nearest')
+    plt.axis('off')
+
+    #Multiplicando ponto a ponto das matrizes
+    multiplicacao = v1_bin*v2_bin
+    print("Matriz binarizada da sobreposição das trajetórias:")
+    #print(multiplicacao)
+    plt.figure()
+    plt.imshow(multiplicacao, cmap='gray_r', interpolation='nearest')
+    plt.axis('off')
+    #Somando todos os 1's da Matriz binarizada da sobreposição das trajetórias
+    soma = np.sum(multiplicacao)
+
+    #Calculando o valor ideal (comparando gabarito x gabarito)
+    soma_ideal = np.sum(v2_bin) 
+
+    #Score calculado pela comparação entre as duas imagens binarizadas e o ideal
+    score = soma/soma_ideal
+
+    return score
+
+
+
+# %%
+resultado = comparar_imagem(teste['Trajetória Completa'][8],gabarito[f'{teste['Número da Trajetória'][8]}'][0])
+
+print(resultado)
+
+
+# %%
+plotar.plot_comparacao(gabarito[f'{teste['Número da Trajetória'][8]}'][0],teste['Trajetória Completa'][8],resultado)
 # %%
