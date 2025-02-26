@@ -9,14 +9,14 @@ def traj_to_points(seq):
     sequencia = []
     for i, num in enumerate(seq):
         match num:
-            case 2:
+            case 1:
                 # Movimento para Direita
                 y.append(y[-1])
                 x.append(x[-1]+10)
                 sequencia.append('⮕')
                 #print('⮕')
                 pass
-            case 1:
+            case 2:
                 #Movimento para Esquerda
                 y.append(y[-1])
                 x.append(x[-1]-10)

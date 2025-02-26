@@ -175,6 +175,7 @@ def avaliar_match_dinamico(v1 = [],v2 =[]):
                 bin_temp_list.append(1)
         resultado.append(temp_list)  # Armazena o resultado pelo seus índices de início 
         resultado_uns.append(bin_temp_list)
+    
     return resultado, resultado_uns
 
 for i, num in enumerate(teste['Número da Trajetória']):
@@ -360,12 +361,13 @@ def traj_to_point(traj =[]):
     
     return x,y,sequencia
 
-def comparar_imagem(seq1=[], seq2=[]):
+def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
     """Compara espacialmente duas sequencias
 
     Args:
         seq1 (list): sequencia executada pelo individuo. Defaults to [].
         seq2 (list): gabarito. Defaults to [].
+        plotar_imagens (bool): se quer ou não plotar as imagens das matrizes binarizadas. Defaults to False
     """
     import numpy as np 
     import matplotlib.pyplot as plt
@@ -396,23 +398,17 @@ def comparar_imagem(seq1=[], seq2=[]):
     #rotacionando as matrizes para ficar de um jeito amigável para printar
     v1_bin = rotate(v1_bin)
     v2_bin = rotate(v2_bin)
-    print("Trajetória Binarizada Sequência1 x Sequência2:")
-    #print(v1_bin)
-    plt.figure()
-    plt.imshow(v1_bin, cmap='gray_r', interpolation='nearest')
-    plt.axis('off')
-    #print(v2_bin)
-    plt.figure()
-    plt.imshow(v2_bin, cmap='gray_r', interpolation='nearest')
-    plt.axis('off')
+    print("Trajetória 1 Binarizada")
+    print(v1_bin)
+    print('--'*100)
+    print('Trajetória 2 Binarizada')
+    print(v2_bin)
 
     #Multiplicando ponto a ponto das matrizes
     multiplicacao = v1_bin*v2_bin
+    print('--'*100)
     print("Matriz binarizada da sobreposição das trajetórias:")
-    #print(multiplicacao)
-    plt.figure()
-    plt.imshow(multiplicacao, cmap='gray_r', interpolation='nearest')
-    plt.axis('off')
+    print(multiplicacao)
     #Somando todos os 1's da Matriz binarizada da sobreposição das trajetórias
     soma = np.sum(multiplicacao)
 
@@ -422,16 +418,57 @@ def comparar_imagem(seq1=[], seq2=[]):
     #Score calculado pela comparação entre as duas imagens binarizadas e o ideal
     score = soma/soma_ideal
 
-    return score
+    # Calcula o que está exclusivamente ou em v1_bin ou em v2_bin
+    xor = v1_bin.astype(int) ^ v2_bin.astype(int) 
+    xor_sum = np.sum(xor)
+    print('--'*100)
+    print('Matriz XOR binarizada:')
+    print(xor)
+    # Score xor é o score de quanto a pessoa errou dado o quanto ela poderia ter errado
+    # quanto mais próximo de 1 mais ela errou
+    score_xor = xor_sum/np.sum(1-v2_bin)
+
+    #visualizando os resultados
+    if(plotar_imagens):
+        # Criar a figura e subplots
+        fig, axes = plt.subplots(2, 2, figsize=(15, 15))  # Criar uma linha com 4 colunas
+
+        # Lista das imagens e títulos correspondentes
+        imagens = [v1_bin, v2_bin, multiplicacao,xor]
+        titulos = ['Trajetória 1 Binarizada (realizada)', 'Trajetória 2 Binarizada (gabarito)', 
+           'Sobreposição das trajetórias Binarizada', 'Matriz XOR binarizada']
+        
+        #Loop ara exibir cada imagem no subplot correspondente
+        for ax, img, titulo in zip(axes.ravel(), imagens, titulos):
+            ax.imshow(img, cmap='gray', interpolation='nearest')
+
+            # Percorrer todos os pixels da matriz e adicionar um "1" onde houver um pixel ativado
+            for i in range(img.shape[0]):  # Linhas
+                for j in range(img.shape[1]):  # Colunas
+                    if img[i, j] == 1:
+                        ax.text(j, i, '1', ha='center', va='center', color='red', fontsize=12, fontweight='bold')
+
+            ax.set_title(titulo,fontsize = 16)
+            ax.axis('off')  # Remover os eixos para melhor visualização
+
+        # Ajustar layout
+        plt.tight_layout()
+        plt.show()
+    
+
+    return score, score_xor
 
 
 
 # %%
-resultado = comparar_imagem(teste['Trajetória Completa'][8],gabarito[f'{teste['Número da Trajetória'][8]}'][0])
+resultado,resultado_xor = comparar_imagem(teste['Trajetória Completa'][8],gabarito[f'{teste['Número da Trajetória'][8]}'][0],plotar_imagens=True)
 
-print(resultado)
+print(resultado,resultado_xor)
 
 
 # %%
 plotar.plot_comparacao(gabarito[f'{teste['Número da Trajetória'][8]}'][0],teste['Trajetória Completa'][8],resultado)
+
+
+
 # %%
