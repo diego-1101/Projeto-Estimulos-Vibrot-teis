@@ -340,7 +340,7 @@ def traj_to_point(traj =[]):
             case 7:
                 # Movimento Diagonal dir->esq para cima
                 y.append(y[-1]+1)
-                x.append(x[-1]-11)
+                x.append(x[-1]-1)
                 sequencia.append('⬉')
                 #print('⬉')
                 pass
@@ -377,13 +377,9 @@ def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
     x2,y2,_= traj_to_point(seq2)
 
     # Verificando qual o tamanho máximo explorado na sequência para fazer posteriormente a matriz de zeros
-    _,contx1 = np.unique(x1, return_counts=True)
-    _,conty1= np.unique(y1, return_counts=True)
-    _,contx2 = np.unique(x2, return_counts=True)
-    _,conty2= np.unique(y2, return_counts=True)
-
-    tamanho = np.max(np.concatenate((contx1,conty1,contx2,conty2)))
-    
+   
+    tamanho = np.max(np.concatenate((x1,x2,y1,y2)))
+    print(tamanho)
     #criando as sequências que vão ser a imagem binarizada
     v1_bin = np.zeros((tamanho+1,tamanho+1)) 
     v2_bin = np.zeros((tamanho+1,tamanho+1))
@@ -426,6 +422,7 @@ def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
     print(xor)
     # Score xor é o score de quanto a pessoa errou dado o quanto ela poderia ter errado
     # quanto mais próximo de 1 mais ela errou
+    print()
     score_xor = xor_sum/np.sum(1-v2_bin)
 
     #visualizando os resultados
@@ -461,13 +458,12 @@ def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
 
 
 # %%
-resultado,resultado_xor = comparar_imagem(teste['Trajetória Completa'][8],gabarito[f'{teste['Número da Trajetória'][8]}'][0],plotar_imagens=True)
+seq_teste = 5
+resultado,resultado_xor = comparar_imagem(teste['Trajetória Completa'][seq_teste],gabarito[f'{teste['Número da Trajetória'][seq_teste]}'][0],plotar_imagens=True)
 
 print(resultado,resultado_xor)
 
-
-# %%
-plotar.plot_comparacao(gabarito[f'{teste['Número da Trajetória'][8]}'][0],teste['Trajetória Completa'][8],resultado)
+plotar.plot_comparacao(gabarito[f'{teste['Número da Trajetória'][seq_teste]}'][0],teste['Trajetória Completa'][seq_teste],resultado)
 
 
 
