@@ -292,6 +292,8 @@ def plotar_distribuicoes_resultados(resultados_df = None, titulo = None):
     """
     import matplotlib.pyplot as plt 
     import seaborn as sns
+    import pandas as pd
+    import numpy as np
     for parametro in resultados_df.columns:
         data = resultados_df[parametro]
 
