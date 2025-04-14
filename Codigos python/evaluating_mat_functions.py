@@ -33,7 +33,7 @@ def avaliar_match_dinamico(v1 = [],v2 =[]):
     
     return resultado, resultado_uns
 
-# %% Ideia 3- Comparação de padrão de imagem 
+#%% Ideia 3- Comparação de padrão de imagem 
 def rotate(array):
     """Recebe uma matriz e rotaciona ela no sentido anti-horário
 
@@ -259,7 +259,7 @@ def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
 
     return [acuracia,precisao,recall,taxa_FP]
 
-# %% Ideia 4- Comparação por correlação máxima normalizada
+#%% Ideia 4- Comparação por correlação máxima normalizada
 def calcular_similaridade(seq1,seq2):
     """
     Calcula a métrica de similaridade entre seq1 e seq2 usando correlação cruzada normalizada.
@@ -282,3 +282,41 @@ def calcular_similaridade(seq1,seq2):
     similaridade = (max_corr/fator_normalizacao) if fator_normalizacao != 0 else print('Não é possível calcular a similaridade, pois a energia de uma das sequencias é 0')
 
     return(similaridade)
+#%%
+def plotar_distribuicoes_resultados(resultados_df = None, titulo = None):
+    """Plota um histograma e um boxplot dos resultados do dataframe inserido 
+
+    Args:
+        resultados_df (pandas Data Frame, required): os resultados das métricas de coomparação de trajetória. Defaults to None.
+        titulo (String, optional): O protocolo que você queira que esteja no título. Defaults to None.
+    """
+    import matplotlib.pyplot as plt 
+    import seaborn as sns
+    for parametro in resultados_df.columns:
+        data = resultados_df[parametro]
+
+        # Criando a figura com 2 subplots (1 linha, 2 colunas)
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
+        # Histograma
+        ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black',label ='Histograma',density=True)
+        # Adicionar a linha de tendência (KDE)
+        sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE",ax=ax[0], bw_adjust=0.5)
+        # Calcular e destacar a média no gráfico
+        media = np.mean(data)
+        ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
+        ax[0].set_title(f"Histograma de {parametro}")
+        ax[0].set_xlabel("Valores")
+        ax[0].set_ylabel("Frequência")
+        ax[0].legend()
+        ax[0].grid(True)
+        #Boxplot
+        ax[1].boxplot(data,vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'),label='boxplot')
+        ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}",alpha = 0.7)
+        ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}",alpha = 0.7)
+        ax[1].set_title(f"Box Plot de {parametro}")
+        ax[1].set_xlabel("Valores")
+        ax[1].legend()
+        
+        fig.suptitle(f'Visualização de {parametro} {titulo}')
+        plt.tight_layout()
+        plt.show()
