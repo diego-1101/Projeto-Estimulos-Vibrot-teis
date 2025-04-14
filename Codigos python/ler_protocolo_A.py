@@ -109,9 +109,6 @@ protA_sv_df = transformar_protA_mat_em_df(protocolo = ProtA_SV, id = id_sv)
 """for i, seq in enumerate(protA_cv_df['df_ID_10']['Rep2']['Trajetória Completa']):
     plotar.plotar_trajetoria(seq = seq,individuo= 'ID10 na primeira repetição')
 """
-#%% 
-teste = protA_cv_df['df_ID_10']['Rep1']
-plotar.plotar_trajetoria(seq = teste['Trajetória Completa'][8])
 
 # %% Carregando os gabaritos
 gabarito = pd.read_csv('Gabaritos\gab_seq_completa_converted.csv')
@@ -156,7 +153,6 @@ for i, num in enumerate(teste['Número da Trajetória']):
 print(pontuacao)
 
 #%% Ideia 2 - Comparação por matchs dinâmicos
-
 def avaliar_match_dinamico(v1 = [],v2 =[]):
     '''
     Compara dinamicamente os vetores v1 e v2
@@ -177,74 +173,6 @@ def avaliar_match_dinamico(v1 = [],v2 =[]):
         resultado_uns.append(bin_temp_list)
     
     return resultado, resultado_uns
-
-for i, num in enumerate(teste['Número da Trajetória']):
-    tamanho = 0
-    coincidencia = 0
-    reincidencia = 0 
-    #pegando a sequencia a ser comparada
-    seq = teste['Trajetória Completa'][i]
-    #pegando a sequência do gabarito correspondente à sequência que a pessoa fez
-    certo = gabarito[f'{num}'][0]
-    
-    if(len(certo) == len(seq)):
-        tamanho += 1
-    elif len(seq) > len(certo):
-        certo = np.pad(certo,(0,len(seq)-len(certo)), mode ='constant', constant_values = 0)
-    else:
-        certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
-    
-    # 1) Avaliar o match perfeito para poder normalizar depois
-    soma_perfeita = 0
-    soma_perfeita_uns = 0 
-    resultado_perfeito, resultado_perfeito_uns  = avaliar_match_dinamico(certo, certo)
-    
-    for j in resultado_perfeito:
-        soma_perfeita += np.sum(j)
-    
-    for j in resultado_perfeito_uns:
-        soma_perfeita_uns += np.sum(j)
-
-    # 2) Avaliar o match real
-    soma_real = 0
-    soma_real_uns = 0
-
-    resultado_real, resultado_real_uns = avaliar_match_dinamico(seq, certo)
-    
-    for j in resultado_real:
-        soma_real += np.sum(j)
-    
-    for j in resultado_real_uns:
-        soma_real_uns += np.sum(j)
-
-    # 3) Dividir o match perfeito pelo real para obter o score parcial
-    score_parcial = soma_real/soma_perfeita
-    score_parcial_uns = soma_real_uns/soma_perfeita_uns
-
-    # 4) score total sendo a média do score parcial ponderado pela proporção explorada em x e em y
-    score_total = ((score_parcial*teste['Proporção espacial x'][i]) + 
-                    (score_parcial*teste['Proporção espacial y'][i]) 
-                    )/2
-    
-    score_total_uns = ((score_parcial_uns*teste['Proporção espacial x'][i]) + 
-                    (score_parcial_uns*teste['Proporção espacial y'][i]) 
-                    )/2
-    
-    print('--'*100)
-    print(f'Trajetória {num}')
-    print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
-    print(f'Trajetória {num}')
-    print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')
-    #print('--'*100)
-
-    # Plotando os gráficos comparativos
-    #plotar.plotar_trajetoria(seq = gabarito[f'{num}'][0], individuo= f"Gabarito trajetória {num}")
-    #plotar.plotar_trajetoria(seq = seq, individuo= f"'df_ID_10' repetição 1")
-    plotar.plot_comparacao(gabarito=gabarito[f'{num}'][0], seq= seq,
-                           score_parcial=score_parcial_uns, 
-                           score_total=score_total_uns)
-
-
 # %% Ideia 3- Comparação de padrão de imagem 
 def rotate(array):
     """Recebe uma matriz e rotaciona ela no sentido anti-horário
@@ -377,55 +305,71 @@ def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
     x2,y2,_= traj_to_point(seq2)
 
     # Verificando qual o tamanho máximo explorado na sequência para fazer posteriormente a matriz de zeros
-   
     tamanho = np.max(np.concatenate((x1,x2,y1,y2)))
-    print(tamanho)
+    #print(tamanho)
+
     #criando as sequências que vão ser a imagem binarizada
     v1_bin = np.zeros((tamanho+1,tamanho+1)) 
     v2_bin = np.zeros((tamanho+1,tamanho+1))
 
     #colocando os 1's de acordo com a trajetória
     for i in zip(x1,y1):
-        v1_bin[i[0]][i[1]] = 1
+        #se os valores de x e y forem iguais a zero eu apenas desconsidero na conversão
+        if((i[0]>=0)&(i[1]>=0)):
+            v1_bin[i[0]][i[1]] = 1
 
+    #se os valores de x e y forem iguais a zero eu apenas desconsidero na conversão    
     for i in zip(x2,y2):
-        v2_bin[i[0]][i[1]] = 1
+        if((i[0]>=0)&(i[1]>=0)):
+            v2_bin[i[0]][i[1]] = 1
     
     #rotacionando as matrizes para ficar de um jeito amigável para printar
     v1_bin = rotate(v1_bin)
     v2_bin = rotate(v2_bin)
-    print("Trajetória 1 Binarizada")
-    print(v1_bin)
-    print('--'*100)
-    print('Trajetória 2 Binarizada')
-    print(v2_bin)
+    #print("Trajetória 1 Binarizada")
+    #print(v1_bin)
+    #print('--'*100)
+    #print('Trajetória 2 Binarizada')
+    #print(v2_bin)
 
     #Multiplicando ponto a ponto das matrizes
     multiplicacao = v1_bin*v2_bin
-    print('--'*100)
-    print("Matriz binarizada da sobreposição das trajetórias:")
-    print(multiplicacao)
-    #Somando todos os 1's da Matriz binarizada da sobreposição das trajetórias
-    soma = np.sum(multiplicacao)
-
-    #Calculando o valor ideal (comparando gabarito x gabarito)
-    soma_ideal = np.sum(v2_bin) 
-
-    #Score calculado pela comparação entre as duas imagens binarizadas e o ideal
-    score = soma/soma_ideal
-
+    #print('--'*100)
+    #print("Matriz binarizada da sobreposição das trajetórias:")
+    #print(multiplicacao)
+    
     # Calcula o que está exclusivamente ou em v1_bin ou em v2_bin
     xor = v1_bin.astype(int) ^ v2_bin.astype(int) 
+    
+    '''
     xor_sum = np.sum(xor)
     print('--'*100)
     print('Matriz XOR binarizada:')
     print(xor)
     # Score xor é o score de quanto a pessoa errou dado o quanto ela poderia ter errado
     # quanto mais próximo de 1 mais ela errou
-    print()
-    score_xor = xor_sum/np.sum(1-v2_bin)
+    #score_xor = xor_sum/(np.sum(1-v2_bin) if np(1-v2_bin) != 0 else 1)"""
+    '''
 
-    #visualizando os resultados
+    # ----- Calculando as métricas de comparação 
+    TP = np.sum((v1_bin.astype(int) == 1) & (v2_bin.astype(int) == 1)) # verdadeiros positivos
+    FP = np.sum((v1_bin.astype(int) == 1) & (v2_bin.astype(int) == 0)) # falsos positivos
+    TN = np.sum((v1_bin.astype(int) == 0) & (v2_bin.astype(int) == 0)) # verdadeiros negativos
+    FN = np.sum((v1_bin.astype(int) == 0) & (v2_bin.astype(int) == 1)) # falsos negativos
+
+    # Mértricas
+    acuracia = (TP+TN)/(TP+TN+FP+FN)
+    precisao = TP / (TP + FP) if (TP + FP) > 0 else 0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    taxa_FP = FP / (FP + TN) if (FP + TN) > 0 else 0
+
+    # Exibir resultados
+    #print(f"Acurácia: {acuracia:.4f}")
+    #print(f"Precisão: {precisao:.4f}")
+    #print(f"Recall (Sensibilidade): {recall:.4f}")
+    #print(f"Taxa de Falsos Positivos (FPR): {taxa_FP:.4f}")
+
+    # ----- Visualizando os resultados
     if(plotar_imagens):
         # Criar a figura e subplots
         fig, axes = plt.subplots(2, 2, figsize=(15, 15))  # Criar uma linha com 4 colunas
@@ -453,18 +397,300 @@ def comparar_imagem(seq1=[], seq2=[], plotar_imagens = False):
         plt.show()
     
 
-    return score, score_xor
+    return [acuracia,precisao,recall,taxa_FP]
+
+# %% Ideia 4- Comparação por correlação máxima normalizada
+def calcular_similaridade(seq1,seq2):
+    """
+    Calcula a métrica de similaridade entre seq1 e seq2 usando correlação cruzada normalizada.
+    Retorna um valor entre 0 e 1 indicando a semelhança.
+    """
+    from  scipy.signal import correlate
+    
+    #como quero testar quanto a sequencia executada é semelhante ao gabarito, seq1 (executada) é fixada e seq2 (gabarito) será deslocado
+    corr = correlate(seq1,seq2,mode = 'full') 
+
+    #pegando o melhor alinhamento possível da correlação
+    max_corr = np.max(corr)
+
+    # Normalizando pelo produto das energias das sequências
+    fator_normalizacao = np.sqrt(np.sum(seq1**2) * np.sum(seq2**2))
+
+    # Calculando a similaridade evitando divisão por 0
+    similaridade = (max_corr/fator_normalizacao) if fator_normalizacao != 0 else print('Não é possível calcular a similaridade, pois a energia de uma das sequencias é 0')
+
+    return(similaridade)
 
 
+#%% Calculando os resultados para uma repetição de um dado individuo
 
-# %%
-seq_teste = 5
-resultado,resultado_xor = comparar_imagem(teste['Trajetória Completa'][seq_teste],gabarito[f'{teste['Número da Trajetória'][seq_teste]}'][0],plotar_imagens=True)
+teste = protA_cv_df['df_ID_21']['Rep2']
+#plotar.plotar_trajetoria(seq = teste['Trajetória Completa'][8])
 
-print(resultado,resultado_xor)
+resultados = []
+for i, num in enumerate(teste['Número da Trajetória']):
+    # Armazenando as sequencias da vez em cada variavel
+    seq1 = np.array(teste['Trajetória Completa'][i]) # sequencia realizada
+    seq2 = np.array(gabarito[f'{num}'][0]) # sequencia gabarito
+    
+    #---- Avaliando o match perfeito (IDEIA 2)
+    tamanho = 0
+    coincidencia = 0
+    reincidencia = 0 
+    #pegando a sequencia a ser comparada
+    seq = seq1
+    #pegando a sequência do gabarito correspondente à sequência que a pessoa fez
+    certo = seq2
+    
+    if(len(certo) == len(seq)):
+        tamanho += 1
+    elif len(seq) > len(certo):
+        certo = np.pad(certo,(0,len(seq)-len(certo)), mode ='constant', constant_values = 0)
+    else:
+        certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
+    
+    # 1) Avaliar o match perfeito para poder normalizar depois
+    soma_perfeita = 0
+    soma_perfeita_uns = 0 
+    resultado_perfeito, resultado_perfeito_uns  = avaliar_match_dinamico(certo, certo)
+    
+    for j in resultado_perfeito:
+        soma_perfeita += np.sum(j)
+    
+    for j in resultado_perfeito_uns:
+        soma_perfeita_uns += np.sum(j)
 
-plotar.plot_comparacao(gabarito[f'{teste['Número da Trajetória'][seq_teste]}'][0],teste['Trajetória Completa'][seq_teste],resultado)
+    # 2) Avaliar o match real
+    soma_real = 0
+    soma_real_uns = 0
+
+    resultado_real, resultado_real_uns = avaliar_match_dinamico(seq, certo)
+    
+    for j in resultado_real:
+        soma_real += np.sum(j)
+    
+    for j in resultado_real_uns:
+        soma_real_uns += np.sum(j)
+
+    # 3) Dividir o match perfeito pelo real para obter o score parcial
+    score_parcial = soma_real/soma_perfeita
+    score_parcial_uns = soma_real_uns/soma_perfeita_uns
+
+    # 4) score total sendo a média do score parcial ponderado pela proporção explorada em x e em y
+    score_total = ((score_parcial*teste['Proporção espacial x'][i]) + 
+                    (score_parcial*teste['Proporção espacial y'][i]) 
+                    )/2
+    
+    score_total_uns = ((score_parcial_uns*teste['Proporção espacial x'][i]) + 
+                    (score_parcial_uns*teste['Proporção espacial y'][i]) 
+                    )/2
+    
+    """print('--'*100)
+    print(f'Trajetória {num}')
+    print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
+    print(f'Trajetória {num}')
+    print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
+
+    #---- Avaliando por comparação de imagem (IDEIA 3)
+    resultado_ideia3 = comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
+
+    #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
+    resultado_ideia4 = calcular_similaridade(seq1,seq2)
+    
+    resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
+
+    # Plotando o comparativo das trajetórias
+    plotar.plot_comparacao(gabarito=seq2, seq= seq1)
+
+    # Printando os resultados
+    print('--------- ' + f'Trajetória {num}' + ' ---------')
+    print(f'-> Resultado da ideia 2 (comparação por matchs perfeitos):\nScore parcial: {score_parcial_uns} | Score total: {score_total_uns}')
+    print(f'-> Resultado da ideia 3 (comparação de imagens):\nAcurácia: {resultado_ideia3[0]:.4f} | Precisão: {resultado_ideia3[1]:.4f}\nRecall: {resultado_ideia3[2]:.4f} | FPR: {resultado_ideia3[3]:.4f}')
+    print(f'-> Resultado da ideia 4 (comparação por similaridade):\nSimilaridade entre as trajetórias: {resultado_ideia4}')
+    print('--'*100)
+
+# %% Vendo a distribuição dos resultados obtidos acima 
+resultados_df = pd.DataFrame(resultados)
+resultados_df.columns = ['Score Parcial','Score Total', 'Acurácia','Precisão','Recall','Taxa de Falsos Positivos','Similaridade']
+import matplotlib.pyplot as plt 
+import seaborn as sns
+
+for parametro in resultados_df.columns:
+    data = resultados_df[parametro]
+
+    # Criando a figura com 2 subplots (1 linha, 2 colunas)
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
+    # Histograma
+    ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black',label ='Histograma')
+    # Adicionar a linha de tendência (KDE)
+    sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE",ax=ax[0])
+    # Calcular e destacar a média no gráfico
+    media = np.mean(data)
+    ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
+    ax[0].set_title(f"Histograma de {parametro}")
+    ax[0].set_xlabel("Valores")
+    ax[0].set_ylabel("Frequência")
+    ax[0].legend()
+    ax[0].grid(True)
+    #Boxplot
+    ax[1].boxplot(data,vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'),label='boxplot')
+    ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}",alpha = 0.7)
+    ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}",alpha = 0.7)
+    ax[1].set_title(f"Box Plot de {parametro}")
+    ax[1].set_xlabel("Valores")
+    ax[1].legend()
+    
+    fig.suptitle(f'Visualização de {parametro}')
+    plt.tight_layout()
+    plt.show()
+
+# %%#%% Calculando os resultados para todas as repetições de todos os individuos
+
+sparcial =[]
+stotal = []
+acur = []
+prec = []
+rcll = []
+fpr =[]
+sim = []
+
+for individuo in protA_cv_df.columns:
+    for rep in protA_cv_df.index:
+        teste = protA_cv_df[individuo][rep]
+    
+        for i, num in enumerate(teste['Número da Trajetória']):
+            # Armazenando as sequencias da vez em cada variavel
+            seq1 = np.array(teste['Trajetória Completa'][i]) # sequencia realizada
+            seq2 = np.array(gabarito[f'{num}'][0]) # sequencia gabarito
+            
+            #---- Avaliando o match perfeito (IDEIA 2)
+            tamanho = 0
+            coincidencia = 0
+            reincidencia = 0 
+            #pegando a sequencia a ser comparada
+            seq = seq1
+            #pegando a sequência do gabarito correspondente à sequência que a pessoa fez
+            certo = seq2
+            
+            if(len(certo) == len(seq)):
+                tamanho += 1
+            elif len(seq) > len(certo):
+                certo = np.pad(certo,(0,len(seq)-len(certo)), mode ='constant', constant_values = 0)
+            else:
+                certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
+            
+            # 1) Avaliar o match perfeito para poder normalizar depois
+            soma_perfeita = 0
+            soma_perfeita_uns = 0 
+            resultado_perfeito, resultado_perfeito_uns  = avaliar_match_dinamico(certo, certo)
+            
+            for j in resultado_perfeito:
+                soma_perfeita += np.sum(j)
+            
+            for j in resultado_perfeito_uns:
+                soma_perfeita_uns += np.sum(j)
+
+            # 2) Avaliar o match real
+            soma_real = 0
+            soma_real_uns = 0
+
+            resultado_real, resultado_real_uns = avaliar_match_dinamico(seq, certo)
+            
+            for j in resultado_real:
+                soma_real += np.sum(j)
+            
+            for j in resultado_real_uns:
+                soma_real_uns += np.sum(j)
+
+            # 3) Dividir o match perfeito pelo real para obter o score parcial
+            score_parcial = soma_real/soma_perfeita
+            score_parcial_uns = soma_real_uns/soma_perfeita_uns
+
+            # 4) score total sendo a média do score parcial ponderado pela proporção explorada em x e em y
+            score_total = ((score_parcial*teste['Proporção espacial x'][i]) + 
+                            (score_parcial*teste['Proporção espacial y'][i]) 
+                            )/2
+            
+            score_total_uns = ((score_parcial_uns*teste['Proporção espacial x'][i]) + 
+                            (score_parcial_uns*teste['Proporção espacial y'][i]) 
+                            )/2
+            
+            """print('--'*100)
+            print(f'Trajetória {num}')
+            print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
+            print(f'Trajetória {num}')
+            print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
+
+            #---- Avaliando por comparação de imagem (IDEIA 3)
+            resultado_ideia3 = comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
+
+            #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
+            resultado_ideia4 = calcular_similaridade(seq1,seq2)
+            
+            #resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
+            sparcial.append(score_parcial_uns)
+            stotal.append(score_total_uns)
+            acur.append(resultado_ideia3[0])
+            prec.append(resultado_ideia3[1])
+            rcll.append(resultado_ideia3[2])
+            fpr.append(resultado_ideia3[3])
+            sim.append(resultado_ideia4)
+
+        """ # Plotando o comparativo das trajetórias
+            plotar.plot_comparacao(gabarito=seq2, seq= seq1)
+
+            # Printando os resultados
+            print('--------- ' + f'Trajetória {num}' + ' ---------')
+            print(f'-> Resultado da ideia 2 (comparação por matchs perfeitos):\nScore parcial: {score_parcial_uns} | Score total: {score_total_uns}')
+            print(f'-> Resultado da ideia 3 (comparação de imagens):\nAcurácia: {resultado_ideia3[0]:.4f} | Precisão: {resultado_ideia3[1]:.4f}\nRecall: {resultado_ideia3[2]:.4f} | FPR: {resultado_ideia3[3]:.4f}')
+            print(f'-> Resultado da ideia 4 (comparação por similaridade):\nSimilaridade entre as trajetórias: {resultado_ideia4}')
+            print('--'*100)"""
+        
 
 
+# %% Vendo a distribuição dos resultados obtidos acima 
+resultados = {
+    'Score Parcial':sparcial,
+    'Score Total':stotal,
+    'Acurácia':acur,
+    'Precisão':prec,
+    'Recall':rcll,
+    'Taxa de Falsos Positivos':fpr,
+    'Similaridade':sim
+}
+
+resultados_df = pd.DataFrame(resultados)
+#%%
+import matplotlib.pyplot as plt 
+import seaborn as sns
+
+for parametro in resultados_df.columns:
+    data = resultados_df[parametro]
+
+    # Criando a figura com 2 subplots (1 linha, 2 colunas)
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
+    # Histograma
+    ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black',label ='Histograma',density=True)
+    # Adicionar a linha de tendência (KDE)
+    sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE",ax=ax[0], bw_adjust=0.5)
+    # Calcular e destacar a média no gráfico
+    media = np.mean(data)
+    ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
+    ax[0].set_title(f"Histograma de {parametro}")
+    ax[0].set_xlabel("Valores")
+    ax[0].set_ylabel("Frequência")
+    ax[0].legend()
+    ax[0].grid(True)
+    #Boxplot
+    ax[1].boxplot(data,vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'),label='boxplot')
+    ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}",alpha = 0.7)
+    ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}",alpha = 0.7)
+    ax[1].set_title(f"Box Plot de {parametro}")
+    ax[1].set_xlabel("Valores")
+    ax[1].legend()
+    
+    fig.suptitle(f'Visualização de {parametro}')
+    plt.tight_layout()
+    plt.show()
 
 # %%
