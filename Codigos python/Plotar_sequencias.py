@@ -247,8 +247,8 @@ def plot_comparacao(gabarito = [], seq = [], score_parcial = 0, score_total = 0)
     plt.show()
 
 #%%
-plot_comparacao(gabarito = [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4],seq= [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
+#plot_comparacao(gabarito = [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4],seq= [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
 
 # %% 
-plotar_trajetoria([3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
+#plotar_trajetoria([3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
 # %%

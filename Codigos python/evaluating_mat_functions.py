@@ -3,7 +3,7 @@ Functions developed by Diego de Sá Dias to evaluate and give scores into
 differents trajectories
 '''
 
-
+#---------------------------- Funções de avaliação de trajetória
 #%% Ideia 2 - Comparação por matchs dinâmicos
 def avaliar_match_dinamico(v1 = [],v2 =[]):
     """Compara de acordo com um match dinâmico os vetores 1 e 2
@@ -24,7 +24,7 @@ def avaliar_match_dinamico(v1 = [],v2 =[]):
         temp_list = []  # Lista temporaria para essa iteração
         bin_temp_list = []
         # Loop para verificar correspondências crescentes a partir da posição inicial atual
-        for i in range(start, len(seq)):  
+        for i in range(start, len(v2)):  
             if np.array_equal(v1[start:i+1], v2[start:i+1]):  # Compara os subarrays
                 temp_list.append(i - start + 1)  #  Append no comprimento do match
                 bin_temp_list.append(1)
