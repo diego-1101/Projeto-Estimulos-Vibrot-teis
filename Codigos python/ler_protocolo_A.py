@@ -6,10 +6,12 @@ Código feito para abrir os arquivos .mat de cada Protocolo e extrair as trajet�
 from scipy.io import loadmat
 import pandas as pd
 import numpy as np 
+import seaborn as sns
+import matplotlib.pyplot as plt 
 import ast
 import Plotar_sequencias as plotar
+import evaluating_mat_functions as ev
 
-#%%
 
 def transformar_protA_mat_em_df(protocolo = [], id = ['07', '10', '17','21','24','31','36','39']):
     '''
@@ -105,52 +107,18 @@ protA_cv_df = transformar_protA_mat_em_df(protocolo = ProtA_CV, id = id_cv)
 protA_sv_df = transformar_protA_mat_em_df(protocolo = ProtA_SV, id = id_sv)
 
 
-#%% plotando algumas trajetórias
+# plotando algumas trajetórias
 """for i, seq in enumerate(protA_cv_df['df_ID_10']['Rep2']['Trajetória Completa']):
     plotar.plotar_trajetoria(seq = seq,individuo= 'ID10 na primeira repetição')
 """
 
-# %% Carregando os gabaritos
+# Carregando os gabaritos
 gabarito = pd.read_csv('Gabaritos\gab_seq_completa_converted.csv')
 gabarito_simplificado = pd.read_csv('Gabaritos\gab_seq_converted.csv')
 for i in gabarito.columns:
     gabarito[i][0] = ast.literal_eval(gabarito[i][0])
     gabarito_simplificado[i][0] = ast.literal_eval(gabarito_simplificado[i][0])
 
-# %% Ideia 1 - Comparação simples
-pontuacao = []
-
-for i, num in enumerate(teste['Número da Trajetória']):
-    tamanho = 0
-    coincidencia = 0
-    reincidencia = 0 
-    #pegando a sequencia a ser comparada
-    seq = teste['Trajetória Completa'][i]
-    #pegando a sequência do gabarito correspondente à sequência que a pessoa fez
-    certo = gabarito[f'{num}'][0]
-    
-    if(len(certo) == len(seq)):
-        tamanho += 1
-    elif len(seq) > len(certo):
-        certo = np.pad(certo,(0,len(seq)-len(certo)), mode ='constant', constant_values = 0)
-    else:
-        certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
-
-    for j in range(len(seq)):
-        #verifico se a direção atual é igual a direção do gabarito
-        if(seq[j] == certo[j]):
-            coincidencia += 1
-            #se for, vejo se a direção seguinte também é igual
-            if(j < len(seq)-1):
-                if(seq[j+1] == certo[j+1]):
-                    reincidencia += 1
-      
-    ponto = tamanho + coincidencia + reincidencia
-    
-    pontuacao.append(ponto) 
-          
-
-print(pontuacao)
 
 #%% Ideia 2 - Comparação por matchs dinâmicos
 def avaliar_match_dinamico(v1 = [],v2 =[]):
@@ -544,8 +512,7 @@ for parametro in resultados_df.columns:
     plt.tight_layout()
     plt.show()
 
-# %%#%% Calculando os resultados para todas as repetições de todos os individuos
-
+# %%#%% Calculando os resultados para todas as repetições de todos os individuos do protocolo A CV
 sparcial =[]
 stotal = []
 acur = []
@@ -582,7 +549,7 @@ for individuo in protA_cv_df.columns:
             # 1) Avaliar o match perfeito para poder normalizar depois
             soma_perfeita = 0
             soma_perfeita_uns = 0 
-            resultado_perfeito, resultado_perfeito_uns  = avaliar_match_dinamico(certo, certo)
+            resultado_perfeito, resultado_perfeito_uns  = ev.avaliar_match_dinamico(certo, certo)
             
             for j in resultado_perfeito:
                 soma_perfeita += np.sum(j)
@@ -594,7 +561,7 @@ for individuo in protA_cv_df.columns:
             soma_real = 0
             soma_real_uns = 0
 
-            resultado_real, resultado_real_uns = avaliar_match_dinamico(seq, certo)
+            resultado_real, resultado_real_uns = ev.avaliar_match_dinamico(seq, certo)
             
             for j in resultado_real:
                 soma_real += np.sum(j)
@@ -622,10 +589,10 @@ for individuo in protA_cv_df.columns:
             print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
 
             #---- Avaliando por comparação de imagem (IDEIA 3)
-            resultado_ideia3 = comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
+            resultado_ideia3 = ev.comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
 
             #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
-            resultado_ideia4 = calcular_similaridade(seq1,seq2)
+            resultado_ideia4 = ev.calcular_similaridade(seq1,seq2)
             
             #resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
             sparcial.append(score_parcial_uns)
@@ -646,10 +613,8 @@ for individuo in protA_cv_df.columns:
             print(f'-> Resultado da ideia 4 (comparação por similaridade):\nSimilaridade entre as trajetórias: {resultado_ideia4}')
             print('--'*100)"""
         
-
-
-# %% Vendo a distribuição dos resultados obtidos acima 
-resultados = {
+# Vendo a distribuição dos resultados obtidos acima 
+resultados_A_CV = {
     'Score Parcial':sparcial,
     'Score Total':stotal,
     'Acurácia':acur,
@@ -659,38 +624,10 @@ resultados = {
     'Similaridade':sim
 }
 
-resultados_df = pd.DataFrame(resultados)
-#%%
-import matplotlib.pyplot as plt 
-import seaborn as sns
+resultados_A_CV_df = pd.DataFrame(resultados_A_CV)
 
-for parametro in resultados_df.columns:
-    data = resultados_df[parametro]
-
-    # Criando a figura com 2 subplots (1 linha, 2 colunas)
-    fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
-    # Histograma
-    ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black',label ='Histograma',density=True)
-    # Adicionar a linha de tendência (KDE)
-    sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE",ax=ax[0], bw_adjust=0.5)
-    # Calcular e destacar a média no gráfico
-    media = np.mean(data)
-    ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
-    ax[0].set_title(f"Histograma de {parametro}")
-    ax[0].set_xlabel("Valores")
-    ax[0].set_ylabel("Frequência")
-    ax[0].legend()
-    ax[0].grid(True)
-    #Boxplot
-    ax[1].boxplot(data,vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'),label='boxplot')
-    ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}",alpha = 0.7)
-    ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}",alpha = 0.7)
-    ax[1].set_title(f"Box Plot de {parametro}")
-    ax[1].set_xlabel("Valores")
-    ax[1].legend()
-    
-    fig.suptitle(f'Visualização de {parametro}')
-    plt.tight_layout()
-    plt.show()
-
+#Plotando as distribuições 
+        
+ev.plotar_distribuicoes_resultados(resultados_A_CV_df, titulo = '(Protocolo A CV)')
 # %%
+print('oi')
