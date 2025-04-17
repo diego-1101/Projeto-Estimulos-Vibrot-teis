@@ -155,8 +155,10 @@ for i in gabarito.columns:
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo A CV
 '''
-sparcial =[]
-stotal = []
+#sparcial =[]
+#stotal = []
+propx = []
+propy = []
 acur = []
 prec = []
 rcll = []
@@ -188,6 +190,7 @@ for individuo in protA_cv_df.columns:
             else:
                 certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
             
+            '''
             # 1) Avaliar o match perfeito para poder normalizar depois
             soma_perfeita = 0
             soma_perfeita_uns = 0 
@@ -229,16 +232,17 @@ for individuo in protA_cv_df.columns:
             print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
             print(f'Trajetória {num}')
             print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
-
+            '''    
             #---- Avaliando por comparação de imagem (IDEIA 3)
             resultado_ideia3 = ev.comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
 
             #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
             resultado_ideia4 = ev.calcular_similaridade(seq1,seq2)
             
-            #resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
-            sparcial.append(score_parcial_uns)
-            stotal.append(score_total_uns)
+            #sparcial.append(score_parcial_uns)
+            #stotal.append(score_total_uns)
+            propx.append(float(teste['Proporção espacial x'][i]))
+            propy.append(float(teste['Proporção espacial y'][i]))
             acur.append(resultado_ideia3[0])
             prec.append(resultado_ideia3[1])
             rcll.append(resultado_ideia3[2])
@@ -257,8 +261,10 @@ for individuo in protA_cv_df.columns:
         
 # Vendo a distribuição dos resultados obtidos acima 
 resultados_A_CV = {
-    'Score Parcial':sparcial,
-    'Score Total':stotal,
+    #'Score Parcial':sparcial,
+    #'Score Total':stotal,
+    'Propx':propx,
+    'Propy':propy,
     'Acurácia':acur,
     'Precisão':prec,
     'Recall':rcll,
@@ -274,8 +280,10 @@ ev.plotar_distribuicoes_resultados(resultados_A_CV_df, titulo = '(Protocolo A CV
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo A SV
 '''
-sparcial =[]
-stotal = []
+#sparcial =[]
+#stotal = []
+propx = []
+propy = []
 acur = []
 prec = []
 rcll = []
@@ -307,6 +315,7 @@ for individuo in protA_sv_df.columns:
             else:
                 certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
             
+            '''
             # 1) Avaliar o match perfeito para poder normalizar depois
             soma_perfeita = 0
             soma_perfeita_uns = 0 
@@ -348,16 +357,17 @@ for individuo in protA_sv_df.columns:
             print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
             print(f'Trajetória {num}')
             print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
-
+            '''    
             #---- Avaliando por comparação de imagem (IDEIA 3)
             resultado_ideia3 = ev.comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
 
             #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
             resultado_ideia4 = ev.calcular_similaridade(seq1,seq2)
             
-            #resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
-            sparcial.append(score_parcial_uns)
-            stotal.append(score_total_uns)
+            #sparcial.append(score_parcial_uns)
+            #stotal.append(score_total_uns)
+            propx.append(float(teste['Proporção espacial x'][i]))
+            propy.append(float(teste['Proporção espacial y'][i]))
             acur.append(resultado_ideia3[0])
             prec.append(resultado_ideia3[1])
             rcll.append(resultado_ideia3[2])
@@ -376,8 +386,10 @@ for individuo in protA_sv_df.columns:
         
 # Vendo a distribuição dos resultados obtidos acima 
 resultados_A_SV = {
-    'Score Parcial':sparcial,
-    'Score Total':stotal,
+    #'Score Parcial':sparcial,
+    #'Score Total':stotal,
+    'Propx':propx,
+    'Propy':propy,
     'Acurácia':acur,
     'Precisão':prec,
     'Recall':rcll,

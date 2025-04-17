@@ -127,12 +127,12 @@ B_CF = loadmat('Aquivos mat\ProtB_CF.mat')
 B_SF = loadmat('Aquivos mat\ProtB_SF.mat')
 #%%
 # Acessar o conteúdo de ProtB_SF
-ProtA_CV = B_CF['ProtB_SF']  # ProtB_SF é uma célula de células
-ProtA_SV = B_SF['ProtB_SF'] # ProtB_SF é uma célula de células (ta so com o mesmo nome do CV, mas não é a mesma coisa)
+ProtB_CF = B_CF['ProtB_SF']  # ProtB_SF é uma célula de células
+ProtB_SF = B_SF['ProtB_SF'] # ProtB_SF é uma célula de células (ta so com o mesmo nome do CV, mas não é a mesma coisa)
 
 # Convertendo para um DataFrame
-protB_cf_df = transformar_protB_mat_em_df(protocolo = ProtA_CV, id = id_cf)
-protB_sf_df = transformar_protB_mat_em_df(protocolo = ProtA_SV, id = id_sf)
+protB_cf_df = transformar_protB_mat_em_df(protocolo = ProtB_CF, id = id_cf)
+protB_sf_df = transformar_protB_mat_em_df(protocolo = ProtB_SF, id = id_sf)
 
 
 # plotando algumas trajetórias
@@ -153,7 +153,7 @@ for i in gabarito.columns:
     Provavelmente porque não houve algum erro durante a execução do protocolo c que acabou 
 não gravando as posições que esse indivíduo estava executando.
 
-    Por isso, fiz essa parte para remover o indivíduo 1 antes de fazer as análises das métricas.
+    Por isso, fiz essa parte para remover (caso necessário) o indivíduo 1 antes de fazer as análises das métricas.
 '''
 '''novo_B_cf_df = protB_cf_df.drop(columns='df_ID_01')
 #protB_cf_df = protB_cf_df.drop(columns='df_ID_01')'''
@@ -162,8 +162,10 @@ não gravando as posições que esse indivíduo estava executando.
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo B CF
 '''
-sparcial =[]
-stotal = []
+#sparcial =[]
+#stotal = []
+propx = []
+propy = []
 acur = []
 prec = []
 rcll = []
@@ -195,6 +197,7 @@ for individuo in protB_cf_df.columns:
             else:
                 certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
             
+            '''
             # 1) Avaliar o match perfeito para poder normalizar depois
             soma_perfeita = 0
             soma_perfeita_uns = 0 
@@ -236,16 +239,17 @@ for individuo in protB_cf_df.columns:
             print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
             print(f'Trajetória {num}')
             print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
-
+            '''    
             #---- Avaliando por comparação de imagem (IDEIA 3)
             resultado_ideia3 = ev.comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
 
             #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
             resultado_ideia4 = ev.calcular_similaridade(seq1,seq2)
             
-            #resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
-            sparcial.append(score_parcial_uns)
-            stotal.append(score_total_uns)
+            #sparcial.append(score_parcial_uns)
+            #stotal.append(score_total_uns)
+            propx.append(float(teste['Proporção espacial x'][i]))
+            propy.append(float(teste['Proporção espacial y'][i]))
             acur.append(resultado_ideia3[0])
             prec.append(resultado_ideia3[1])
             rcll.append(resultado_ideia3[2])
@@ -264,8 +268,10 @@ for individuo in protB_cf_df.columns:
         
 # Vendo a distribuição dos resultados obtidos acima 
 resultados_B_CF = {
-    'Score Parcial':sparcial,
-    'Score Total':stotal,
+    #'Score Parcial':sparcial,
+    #'Score Total':stotal,
+    'Propx':propx,
+    'Propy':propy,
     'Acurácia':acur,
     'Precisão':prec,
     'Recall':rcll,
@@ -281,8 +287,10 @@ ev.plotar_distribuicoes_resultados(resultados_B_CF_df, titulo = '(Protocolo B CF
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo B SF
 '''
-sparcial =[]
-stotal = []
+#sparcial =[]
+#stotal = []
+propx = []
+propy = []
 acur = []
 prec = []
 rcll = []
@@ -314,6 +322,7 @@ for individuo in protB_sf_df.columns:
             else:
                 certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
             
+            '''
             # 1) Avaliar o match perfeito para poder normalizar depois
             soma_perfeita = 0
             soma_perfeita_uns = 0 
@@ -355,16 +364,17 @@ for individuo in protB_sf_df.columns:
             print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
             print(f'Trajetória {num}')
             print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
-
+            '''    
             #---- Avaliando por comparação de imagem (IDEIA 3)
             resultado_ideia3 = ev.comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
 
             #---- Avaliando por similaridade com correlação cruzada normalizada (IDEIA 4)
             resultado_ideia4 = ev.calcular_similaridade(seq1,seq2)
             
-            #resultados.append([score_parcial_uns,score_total_uns,resultado_ideia3[0],resultado_ideia3[1], resultado_ideia3[2], resultado_ideia3[3],resultado_ideia4])
-            sparcial.append(score_parcial_uns)
-            stotal.append(score_total_uns)
+            #sparcial.append(score_parcial_uns)
+            #stotal.append(score_total_uns)
+            propx.append(float(teste['Proporção espacial x'][i]))
+            propy.append(float(teste['Proporção espacial y'][i]))
             acur.append(resultado_ideia3[0])
             prec.append(resultado_ideia3[1])
             rcll.append(resultado_ideia3[2])
@@ -383,8 +393,10 @@ for individuo in protB_sf_df.columns:
         
 # Vendo a distribuição dos resultados obtidos acima 
 resultados_B_SF = {
-    'Score Parcial':sparcial,
-    'Score Total':stotal,
+    #'Score Parcial':sparcial,
+    #'Score Total':stotal,
+    'Propx':propx,
+    'Propy':propy,
     'Acurácia':acur,
     'Precisão':prec,
     'Recall':rcll,
@@ -398,8 +410,8 @@ resultados_B_SF_df = pd.DataFrame(resultados_B_SF)
 ev.plotar_distribuicoes_resultados(resultados_B_SF_df, titulo = '(Protocolo B SF)')
 
 # %% Salvando os resultados em .csv
-
-'''# Arquivo B CF
+'''
+# Arquivo B CF
 resultados_B_CF_df.to_csv('Resultados Metricas ProtB CF.csv')
 # Arquivo A SV
 resultados_B_SF_df.to_csv('Resultados Metricas ProtB SF.csv')'''
