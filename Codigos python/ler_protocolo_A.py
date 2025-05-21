@@ -151,6 +151,7 @@ for i in gabarito.columns:
     gabarito_simplificado[i][0] = ast.literal_eval(gabarito_simplificado[i][0])
 
 
+
 #%% 
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo A CV
@@ -164,11 +165,13 @@ prec = []
 rcll = []
 fpr =[]
 sim = []
+desempenho = []
+desempenho_norm = []
 
 for individuo in protA_cv_df.columns:
     for rep in protA_cv_df.index:
         teste = protA_cv_df[individuo][rep]
-    
+
         for i, num in enumerate(teste['Número da Trajetória']):
             # Armazenando as sequencias da vez em cada variavel
             seq1 = np.array(teste['Trajetória Completa'][i]) # sequencia realizada
@@ -248,6 +251,34 @@ for individuo in protA_cv_df.columns:
             rcll.append(resultado_ideia3[2])
             fpr.append(resultado_ideia3[3])
             sim.append(resultado_ideia4)
+            # Desempenho calculado através da ideia de uma combinação das métricas escolhidas
+            resultado = np.mean([resultado_ideia3[0], resultado_ideia3[3], resultado_ideia4])
+            resultado2 = np.mean([float(teste['Proporção espacial x'][i]), float(teste['Proporção espacial y'][i])]) * np.mean([resultado_ideia3[0], resultado_ideia3[3], resultado_ideia4])
+            desempenho.append(resultado)
+            desempenho_norm.append(resultado2)
+            
+
+        protA_cv_df[individuo][rep]['Acurácia'] = acur
+        protA_cv_df[individuo][rep]['Média Acurácia'] = np.mean(acur)
+        protA_cv_df[individuo][rep]['Precisão'] = prec 
+        protA_cv_df[individuo][rep]['Média Prec'] = np.mean(prec)
+        protA_cv_df[individuo][rep]['Recall'] = rcll
+        protA_cv_df[individuo][rep]['Média Recall'] = np.mean(rcll)
+        protA_cv_df[individuo][rep]['Taxa de Falsos Positivos'] = fpr
+        protA_cv_df[individuo][rep]['Média FPR'] = np.mean(fpr)
+        protA_cv_df[individuo][rep]['Similaridade'] = sim
+        protA_cv_df[individuo][rep]['Média Similaridade'] = np.mean(sim)
+        protA_cv_df[individuo][rep]['Desempenho'] = desempenho
+        protA_cv_df[individuo][rep]['Desempenho ponderado com proporção'] = desempenho_norm
+        
+        #Reiniciando as listas para a próxima iteração
+        acur = []
+        prec = []
+        rcll = []
+        fpr =[]
+        sim = []
+        desempenho = []
+        desempenho_norm = []
 
         """ # Plotando o comparativo das trajetórias
             plotar.plot_comparacao(gabarito=seq2, seq= seq1)
@@ -258,7 +289,8 @@ for individuo in protA_cv_df.columns:
             print(f'-> Resultado da ideia 3 (comparação de imagens):\nAcurácia: {resultado_ideia3[0]:.4f} | Precisão: {resultado_ideia3[1]:.4f}\nRecall: {resultado_ideia3[2]:.4f} | FPR: {resultado_ideia3[3]:.4f}')
             print(f'-> Resultado da ideia 4 (comparação por similaridade):\nSimilaridade entre as trajetórias: {resultado_ideia4}')
             print('--'*100)"""
-        
+
+#%%        
 # Vendo a distribuição dos resultados obtidos acima 
 resultados_A_CV = {
     #'Score Parcial':sparcial,
@@ -276,6 +308,175 @@ resultados_A_CV_df = pd.DataFrame(resultados_A_CV)
 
 #Plotando as distribuições 
 ev.plotar_distribuicoes_resultados(resultados_A_CV_df, titulo = '(Protocolo A CV)')
+
+
+#%% Criando o DataFrame para o desempenho
+# 1) Juntando todas as repetições de cada indivíduo 
+
+# 1.1) Criando o dataframe com tudo junto
+lista_concatenada = []
+
+for individuo in protA_cv_df.columns:
+    for rep_label in protA_cv_df[individuo].index:  # 'Rep1', 'Rep2', 'Rep3'
+        df_tmp = protA_cv_df[individuo][rep_label].copy()
+        df_tmp['ID'] = individuo
+        df_tmp['Repeticao'] = rep_label
+        lista_concatenada.append(df_tmp)
+
+#concatena todos os indivíduos em um só dataframe para facilitar a análise
+df_concat_protA_cv = pd.concat(lista_concatenada, ignore_index=True)
+
+# 1.2) Adicionando ao DataFrame a complexidade de cada trajetória para facilitar o filtro
+
+def map_complexidade(num_traj):
+    """
+    Mapeia o número da trajetória para um nível de complexidade.
+
+    Args:
+        num_traj (int): qual o número da trajetória realizada
+
+    Returns:
+        (int): valor da complexidade daquela trajetória
+    """
+    if num_traj in [1,2,3]:
+        return 4
+    if num_traj in [4,5,6]:
+        return 6
+    if num_traj in [7,8,9]:
+        return 8
+
+df_concat_protA_cv['Complexidade'] = df_concat_protA_cv['Número da Trajetória'].apply(map_complexidade)
+
+# 2) Calculando os desempenhos médio conforme a minha ideia 
+df_concat_protA_cv['Overlap'] = df_concat_protA_cv['Overlap'].astype(float)
+df_concat_protA_cv['ID'] = df_concat_protA_cv['ID'].astype(str)
+df_concat_protA_cv['Número da Trajetória'] = df_concat_protA_cv['Número da Trajetória'].astype(int)
+
+
+res_1 = []
+res_2 = []
+res_3 = []
+res_4 = []
+
+#Listas únicas de cada ID, complexidade, overlap e trajetória
+ids = df_concat_protA_cv['ID'].unique()
+complexidades = sorted(df_concat_protA_cv['Complexidade'].unique())
+overlaps = sorted(df_concat_protA_cv['Overlap'].unique())
+trajetorias = sorted(df_concat_protA_cv['Número da Trajetória'].unique())
+
+
+for id in ids:
+    # Desempenho médio por Overlap
+    for overlap in overlaps:
+        dados_filtrados=df_concat_protA_cv[(df_concat_protA_cv['ID'] == id) & 
+                                           (df_concat_protA_cv['Overlap'] == overlap)
+                                           ]
+        media = dados_filtrados['Desempenho'].mean()
+        media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+        res_1.append({'ID': id, 'Overlap': overlap, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+    # Desempenho médio por Complexidade
+    for complexidade in complexidades:
+        dados_filtrados=df_concat_protA_cv[(df_concat_protA_cv['ID'] == id) & 
+                                           (df_concat_protA_cv['Complexidade'] == complexidade)
+                                           ]
+        media = dados_filtrados['Desempenho'].mean()
+        media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+        res_2.append({'ID': id, 'Complexidade': complexidade, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+    # Desempenho médio por Complexidade e Overlap
+    for overlap in overlaps:
+        for complexidade in complexidades:
+            dados_filtrados=df_concat_protA_cv[(df_concat_protA_cv['ID'] == id) & 
+                                               (df_concat_protA_cv['Complexidade'] == complexidade) & 
+                                               (df_concat_protA_cv['Overlap'] == overlap)
+                                               ]
+            media = dados_filtrados['Desempenho'].mean()
+            media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+            res_3.append({'ID': id, 'Complexidade': complexidade, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+    # Desempenho médio por Trajetória 
+    for overlap in overlaps:
+        for traj in trajetorias:
+            dados_filtrados=df_concat_protA_cv[(df_concat_protA_cv['ID'] == id) & 
+                                               (df_concat_protA_cv['Overlap'] == overlap) & 
+                                               (df_concat_protA_cv['Número da Trajetória'] == traj)
+                                               ]
+            media = dados_filtrados['Desempenho'].mean()
+            media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+            res_4.append({'ID': id, 'Número da trajetoria': traj, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+
+
+
+desempenho = {
+    'por_overlap': pd.DataFrame(res_1),
+    'por_complexidade': pd.DataFrame(res_2),
+    'por_complexidade_por_overlap': pd.DataFrame(res_3),
+    'por_trajetoria_por_overlap': pd.DataFrame(res_4)
+}
+
+#%%
+# Plotando os desempenhos médios
+# Criando a figura com 2 subplots (1 linha, 2 colunas)
+for tipo_desempenho in desempenho.keys():
+    parametro = f'Desempenho médio ponderado {tipo_desempenho}'
+    titulo = 'do Protocolo A CV'
+    data = desempenho[tipo_desempenho]['Media_Desempenho_Ponderado']
+    
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
+
+    # Histograma
+    ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black', label='Histograma', density=True)
+    sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE", ax=ax[0], bw_adjust=0.5)
+    media = np.mean(data)
+    ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
+    ax[0].set_title(f"Histograma de {parametro}")
+    ax[0].set_xlabel("Valores")
+    ax[0].set_ylabel("Frequência")
+    ax[0].legend()
+    ax[0].grid(True)
+
+    # Boxplot
+    ax[1].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'), labels=[''])
+    ax[1].scatter(data, np.ones_like(data), color='red', alpha=0.6, s=20, label='Pontos')  
+    ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}", alpha=0.7)
+    ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}", alpha=0.7)
+    ax[1].set_title(f"Box Plot de {parametro}")
+    ax[1].set_xlabel("Valores")
+    ax[1].legend()
+
+    fig.suptitle(f'Visualização de {parametro} {titulo}')
+    plt.tight_layout()
+    plt.show()
+
+#%%
+#Desempenho de todo o protocolo A CV
+parametro = f'Desempenho ponderado de todo o'
+titulo = 'Protocolo A CV'
+data = df_concat_protA_cv['Desempenho ponderado com proporção']
+
+fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
+
+# Histograma
+ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black', label='Histograma', density=True)
+sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE", ax=ax[0], bw_adjust=0.5)
+media = np.mean(data)
+ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
+ax[0].set_title(f"Histograma de {parametro}")
+ax[0].set_xlabel("Valores")
+ax[0].set_ylabel("Frequência")
+ax[0].legend()
+ax[0].grid(True)
+
+# Boxplot
+ax[1].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'), labels=[''])
+ax[1].scatter(data, np.ones_like(data), color='red', alpha=0.6, s=20, label='Pontos')  
+ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}", alpha=0.7)
+ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}", alpha=0.7)
+ax[1].set_title(f"Box Plot de {parametro}")
+ax[1].set_xlabel("Valores")
+ax[1].legend()
+
+fig.suptitle(f'Visualização de {parametro} {titulo}')
+plt.tight_layout()
+plt.show()
 #%% 
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo A SV
@@ -373,6 +574,24 @@ for individuo in protA_sv_df.columns:
             rcll.append(resultado_ideia3[2])
             fpr.append(resultado_ideia3[3])
             sim.append(resultado_ideia4)
+        
+        protA_sv_df[individuo][rep]['Acurácia'] = acur
+        protA_sv_df[individuo][rep]['Média Acurácia'] = np.mean(acur)
+        protA_sv_df[individuo][rep]['Precisão'] = prec
+        protA_sv_df[individuo][rep]['Média Prec'] = np.mean(prec)
+        protA_sv_df[individuo][rep]['Recall'] = rcll
+        protA_sv_df[individuo][rep]['Média Recall'] = np.mean(rcll)
+        protA_sv_df[individuo][rep]['Taxa de Falsos Positivos'] = fpr
+        protA_sv_df[individuo][rep]['Média FPR'] = np.mean(fpr)
+        protA_sv_df[individuo][rep]['Similaridade'] = sim
+        protA_sv_df[individuo][rep]['Média Similaridade'] = np.mean(sim)
+
+        #Reiniciando as listas para a próxima iteração
+        acur = []
+        prec = []
+        rcll = []
+        fpr =[]
+        sim = []
 
         """ # Plotando o comparativo das trajetórias
             plotar.plot_comparacao(gabarito=seq2, seq= seq1)
@@ -383,7 +602,8 @@ for individuo in protA_sv_df.columns:
             print(f'-> Resultado da ideia 3 (comparação de imagens):\nAcurácia: {resultado_ideia3[0]:.4f} | Precisão: {resultado_ideia3[1]:.4f}\nRecall: {resultado_ideia3[2]:.4f} | FPR: {resultado_ideia3[3]:.4f}')
             print(f'-> Resultado da ideia 4 (comparação por similaridade):\nSimilaridade entre as trajetórias: {resultado_ideia4}')
             print('--'*100)"""
-        
+
+#%%        
 # Vendo a distribuição dos resultados obtidos acima 
 resultados_A_SV = {
     #'Score Parcial':sparcial,
@@ -413,4 +633,7 @@ resultados_A_CV_df.to_csv('Resultados Metricas ProtA CV.csv')
 resultados_A_SV_df.to_csv('Resultados Metricas ProtA SV.csv')'''
 
 
+# %%
+for i in gabarito.columns:
+    plotar.plotar_trajetoria(gabarito[i][0],individuo= f'Gabarito {i}')
 # %%
