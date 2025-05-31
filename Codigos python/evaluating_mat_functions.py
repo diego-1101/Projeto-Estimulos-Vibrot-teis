@@ -3,7 +3,7 @@ Functions developed by Diego de Sá Dias to evaluate and give scores into
 differents trajectories
 '''
 
-#---------------------------- Funções de avaliação de trajetória
+#%%#---------------------------- Funções de avaliação de trajetória
 #%% Ideia 2 - Comparação por matchs dinâmicos
 def avaliar_match_dinamico(v1 = [],v2 =[]):
     """Compara de acordo com um match dinâmico os vetores 1 e 2
@@ -282,7 +282,36 @@ def calcular_similaridade(seq1,seq2):
     similaridade = (max_corr/fator_normalizacao) if fator_normalizacao != 0 else print('Não é possível calcular a similaridade, pois a energia de uma das sequencias é 0')
 
     return(similaridade)
-#%%
+
+#%% Função para calcular o desempenho
+def calcular_desempenho(acur, fpr, sim, propx, propy):
+    """Calcula o desempenho geral com base nas métricas de acurácia, taxa de falsos positivos, similaridade e proporções.
+    O desempenho é calculado como a média das métricas, o desempenho normalizado é calculado por essa média e normalizada pelas proporções fornecidas.
+
+    Args:
+        acur (float): acurácia da comparação de trajetórias.
+        fpr (float): taxa de falsos positivos da comparação de trajetórias.
+        sim (float): similaridade da comparação de trajetórias.
+        propx (float): proporção em x para normalização do desempenho.
+        propy (float): proporção em y para normalização do desempenho.
+
+    Returns:
+        desempenho (float): desempenho geral calculado como a média das métricas.
+        desempenho_norm (float): desempenho normalizado calculado como a média das métricas e normalizado pelas proporções.
+    """
+
+    import numpy as np 
+    
+    desempenho = np.mean([acur, fpr, sim])
+    desempenho_norm = np.mean([propx, propy]) * desempenho 
+
+    return desempenho, desempenho_norm
+
+
+
+#%%#---------------------------- Funções de Plot dos resultados ----------------------------
+
+
 def plotar_distribuicoes_resultados(resultados_df = None, titulo = None):
     """Plota um histograma e um boxplot dos resultados do dataframe inserido 
 
