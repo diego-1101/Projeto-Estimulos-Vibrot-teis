@@ -285,7 +285,7 @@ def calcular_similaridade(seq1,seq2):
 
 #%% Função para calcular o desempenho
 def calcular_desempenho(acur, fpr, sim, propx, propy):
-    """Calcula o desempenho geral com base nas métricas de acurácia, taxa de falsos positivos, similaridade e proporções.
+    """Calcula o desempenho geral com base nas métricas de acurácia, especificidade (1-taxa de falsos positivos), similaridade e proporções.
     O desempenho é calculado como a média das métricas, o desempenho normalizado é calculado por essa média e normalizada pelas proporções fornecidas.
 
     Args:
@@ -302,11 +302,76 @@ def calcular_desempenho(acur, fpr, sim, propx, propy):
 
     import numpy as np 
     
-    desempenho = np.mean([acur, fpr, sim])
+    desempenho = np.mean([acur, (1-fpr), sim])
     desempenho_norm = np.mean([propx, propy]) * desempenho 
 
     return desempenho, desempenho_norm
 
+#%% Funções para teste de normalidade
+def teste_normalidade_shapiro(df, titulo = '', alpha=0.05):
+    """Realiza o teste de normalidade de Shapiro-Wilk para as colunas de desempenho médio e ponderado.
+
+    Args:
+        df (Pandas DataFrame, required): DataFrame contendo as colunas 'Media_Desempenho' e 'Media_Desempenho_Ponderado'.
+        titulo (str, optional): Título para o teste de normalidade, usado na impressão dos resultados. Defaults to ''.
+        alpha (float, optional): Nível de significância para o teste de normalidade. Defaults to 0.05. 
+
+    Returns:
+        dict: Dicionário com os resultados do teste de normalidade para cada coluna.
+            1. 'Media_Desempenho': Lista com o valor W e o p-valor do teste de normalidade.
+            2. 'Media_Desempenho_Ponderado': Lista com o valor W e o p-valor do teste de normalidade.
+    """
+
+
+    import pandas as pd
+    from scipy.stats import shapiro
+    
+    # Desempenho médio
+    w1,p1 = shapiro(df['Media_Desempenho']) 
+    # Desempenho médio ponderado 
+    w2,p2 = shapiro(df['Media_Desempenho_Ponderado']) 
+
+    print(f'--- Teste de normalidade por Shapiro-Wilk ({titulo}) ---')
+    print(f"Desempenho médio: W={w1:.4f}, p-valor={p1:.4f} -> ",
+           f"✅Normal (alpha={alpha})" if p1 > alpha else f"❌Não normal (alpha={alpha})")
+    print(f"Desempenho médio ponderado: W={w2:.4f}, p-valor={p2:.4f} -> ", 
+          f"✅Normal (alpha={alpha})" if p2 > alpha else f"❌Não normal (alpha={alpha})")
+    
+    return {'Media_Desempenho':[w1, p1], 'Media_Desempenho_Ponderado': [w2, p2]}
+
+def teste_normalidade_kstest(df, titulo = '', alpha=0.05):
+    """Realiza o teste de normalidade de Kolmogorov-Smirnov para as colunas de desempenho médio e ponderado.
+
+    Args:
+        df (Pandas DataFrame, required): DataFrame contendo as colunas 'Media_Desempenho' e 'Media_Desempenho_Ponderado'.
+        titulo (str, optional): Título para o teste de normalidade, usado na impressão dos resultados. Defaults to ''.
+        alpha (float, optional): Nível de significância para o teste de normalidade. Defaults to 0.05. 
+
+    Returns:
+        dict: Dicionário com os resultados do teste de normalidade para cada coluna.
+            1. 'Media_Desempenho': Lista com o valor D e o p-valor do teste de normalidade.
+            2. 'Media_Desempenho_Ponderado': Lista com o valor D e o p-valor do teste de normalidade.
+    """
+
+    import pandas as pd
+    from scipy.stats import kstest
+    
+    media1 = df['Media_Desempenho'].mean()
+    media2 = df['Media_Desempenho_Ponderado'].mean()
+    desvio1  = df['Media_Desempenho'].std()
+    desvio2  = df['Media_Desempenho_Ponderado'].std()
+    # Desempenho médio
+    d1,p1 = kstest(df['Media_Desempenho'], 'norm', args=(media1, desvio1)) 
+    # Desempenho médio ponderado 
+    d2,p2 = kstest(df['Media_Desempenho_Ponderado'], 'norm', args=(media2, desvio2)) 
+
+    print(f'--- Teste de normalidade por Kolmogorov-Smirnov ({titulo}) ---')
+    print(f"Desempenho médio: D={d1:.4f}, p-valor={p1:.4f} -> ",
+           f"✅Normal (alpha={alpha})" if p1 > alpha else f"❌Não normal (alpha={alpha})")
+    print(f"Desempenho médio ponderado: D={d2:.4f}, p-valor={p2:.4f} -> ", 
+          f"✅Normal (alpha={alpha})" if p2 > alpha else f"❌Não normal (alpha={alpha})")
+    
+    return {'Media_Desempenho':[d1, p1], 'Media_Desempenho_Ponderado': [d2, p2]}
 
 
 #%%#---------------------------- Funções de Plot dos resultados ----------------------------
