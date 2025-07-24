@@ -435,7 +435,7 @@ print('---'*100)
 print('Desempenhos médios do Protocolo A CV')
 print('---'*100)    
 for tipo_desempenho in desempenho_A_cv.keys():
-    parametro = f'Desempenho médio ponderado {tipo_desempenho}'
+    parametro = f'Desempenho médio {tipo_desempenho}'
     titulo = 'do Protocolo A CV'
     #data = desempenho_A_cv[tipo_desempenho]['Media_Desempenho']
     data = desempenho_A_cv[tipo_desempenho]['Media_Desempenho']
@@ -454,7 +454,7 @@ for tipo_desempenho in desempenho_A_sv.keys():
     
     #Plotando com a função de plotar desempenhos
     ev.plotar_desempenhos(data,titulo,parametro)
-#%% #Desempenho de todo o protocolo A CV e SV
+#%% Plotando os desempenhos de todo o protocolo A CV e SV
 
 print('---'*100)
 print('Desempenhos de todo Protocolo A CV')
@@ -483,18 +483,75 @@ plotar.plotar_trajetoria(gabarito[i][0],individuo= f'Gabarito {i}')
 
 """
 # %% --------------------------------------- Teste de Normalidade ---------------------------------------
+alpha = 0.05
 
-#%%
-"""for tipo_desempenho in desempenho_A_cv.keys():
-    '''
+print('---'*100)
+print('Teste de Normalidade dos desempenhos do Protocolo A CV')
+print('---'*100)
+
+resultado_normalidade_shapiro_cv = []
+resultado_normalidade_shapiro_sv = []
+resultado_normalidade_kstest_cv = []
+resultado_normalidade_kstest_sv = []
+
+for tipo_desempenho in desempenho_A_cv.keys():
+    
+    resultado = ev.teste_normalidade_shapiro(desempenho_A_cv[tipo_desempenho],
+
+                                          titulo=tipo_desempenho,alpha=alpha)
+    print(resultado)
+    resultado_normalidade_shapiro_cv.append(resultado)
+    
+    resultado = ev.teste_normalidade_kstest(desempenho_A_cv[tipo_desempenho],
+                                          titulo=tipo_desempenho,alpha=alpha)
+    print(resultado)
+    resultado_normalidade_kstest_cv.append(resultado)
+
+print('\n')
+print('---'*100)
+print('Teste de Normalidade dos desempenhos do Protocolo A SV')
+print('---'*100)
+
+for tipo_desempenho in desempenho_A_sv.keys():
     resultado = ev.teste_normalidade_shapiro(desempenho_A_sv[tipo_desempenho],
-                                          titulo=tipo_desempenho,alpha=0.025)
+                                          titulo=tipo_desempenho,alpha=alpha)
     print(resultado)
-    '''
+    resultado_normalidade_shapiro_sv.append(resultado)
+    
     resultado = ev.teste_normalidade_kstest(desempenho_A_sv[tipo_desempenho],
-                                          titulo=tipo_desempenho,alpha=0.025)
+                                          titulo=tipo_desempenho,alpha=alpha)
     print(resultado)
-"""
+    resultado_normalidade_kstest_sv.append(resultado)
+
+#Normalidade de todo o protocolo A CV e SV
+from scipy.stats import shapiro, kstest
+
+print('\n')
+print('---'*100)
+print('Teste de Normalidade dos desempenhos de todo Protocolo A CV')
+print('---'*100)
+w_cv, p_shapiro_cv = shapiro(df_concat_protA_cv['Desempenho'])
+print(f'Estatística W: {w_cv}, p-valor: {p_shapiro_cv}')
+print(f"✅Normal (alpha={alpha})" if p_shapiro_cv > alpha else f"❌Não normal (alpha={alpha})")
+d_cv, p_kstest_cv = kstest(df_concat_protA_cv['Desempenho'], 'norm', args=(df_concat_protA_cv['Desempenho'].mean(), df_concat_protA_cv['Desempenho'].std()))
+print(f'Estatística D: {d_cv}, p-valor: {p_kstest_cv}')
+print(f"✅Normal (alpha={alpha})" if p_kstest_cv > alpha else f"❌Não normal (alpha={alpha})")   
+
+print('\n')
+print('---'*100)
+print('Teste de Normalidade dos desempenhos de todo Protocolo A SV')
+print('---'*100)
+w_sv, p_shapiro_sv = shapiro(df_concat_protA_sv['Desempenho'])
+print(f'Estatística W: {w_sv}, p-valor: {p_shapiro_sv}')
+print(f"✅Normal (alpha={alpha})" if p_shapiro_sv > alpha else f"❌Não normal (alpha={alpha})")
+d_sv, p_kstest_sv = kstest(df_concat_protA_sv['Desempenho'], 'norm', args=(df_concat_protA_sv['Desempenho'].mean(), df_concat_protA_sv['Desempenho'].std()))
+print(f'Estatística D: {d_sv}, p-valor: {p_kstest_sv}')
+print(f"✅Normal (alpha={alpha})" if p_kstest_sv > alpha else f"❌Não normal (alpha={alpha})")
+
+
+#%% --------------------------------------- Teste de Homogeneidade de Variância ---------------------------------------
+from scipy.stats import levene
+
 
 #%% --------------------------------------- Teste de Hipótese  ---------------------------------------
 from scipy.stats import ttest_rel
