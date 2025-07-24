@@ -374,8 +374,83 @@ def teste_normalidade_kstest(df, titulo = '', alpha=0.05):
     return {'Media_Desempenho':[d1, p1], 'Media_Desempenho_Ponderado': [d2, p2]}
 
 
-#%%#---------------------------- Funções de Plot dos resultados ----------------------------
+#%%#---------------------------- Funções auxiliares gerais ----------------------------
 
+def map_complexidade(num_traj):
+    """
+    Mapeia o número da trajetória para um nível de complexidade.
+
+    Args:
+        num_traj (int): qual o número da trajetória realizada
+
+    Returns:
+        (int): valor da complexidade daquela trajetória
+    """
+    if num_traj in [1,2,3]:
+        return 4
+    if num_traj in [4,5,6]:
+        return 6
+    if num_traj in [7,8,9]:
+        return 8
+    
+def calcular_desempenhos_medios(df_concat,ids,complexidades,overlaps,trajetorias):
+    
+    import pandas as pd
+    # Desempenho médio e médio ponderado por Overlap
+    res_1 = []
+    res_2 = []
+    res_3 = []
+    res_4 = []
+    for id in ids:
+        for overlap in overlaps:
+            dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                            (df_concat['Overlap'] == overlap)
+                                            ]
+            media = dados_filtrados['Desempenho'].mean()
+            media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+            res_1.append({'ID': id, 'Overlap': overlap, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+        # Desempenho médio e médio ponderado por Complexidade
+        for complexidade in complexidades:
+            dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                            (df_concat['Complexidade'] == complexidade)
+                                            ]
+            media = dados_filtrados['Desempenho'].mean()
+            media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+            res_2.append({'ID': id, 'Complexidade': complexidade, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+        # Desempenho médio e médio ponderado por Complexidade e Overlap
+        for overlap in overlaps:
+            for complexidade in complexidades:
+                dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                                (df_concat['Complexidade'] == complexidade) & 
+                                                (df_concat['Overlap'] == overlap)
+                                                ]
+                media = dados_filtrados['Desempenho'].mean()
+                media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+                res_3.append({'ID': id, 'Complexidade': complexidade, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+        # Desempenho médio e médio ponderado por Trajetória 
+        for overlap in overlaps:
+            for traj in trajetorias:
+                dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                                (df_concat['Overlap'] == overlap) & 
+                                                (df_concat['Número da Trajetória'] == traj)
+                                                ]
+                media = dados_filtrados['Desempenho'].mean()
+                media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+                res_4.append({'ID': id, 'Número da trajetoria': traj, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+
+
+
+    desempenho = {
+        'por_overlap': pd.DataFrame(res_1),
+        'por_complexidade': pd.DataFrame(res_2),
+        'por_complexidade_por_overlap': pd.DataFrame(res_3),
+        'por_trajetoria_por_overlap': pd.DataFrame(res_4)
+    }
+
+    return desempenho
+
+
+#%%#---------------------------- Funções de Plot dos resultados ----------------------------
 
 def plotar_distribuicoes_resultados(resultados_df = None, titulo = None):
     """Plota um histograma e um boxplot dos resultados do dataframe inserido 
@@ -416,3 +491,34 @@ def plotar_distribuicoes_resultados(resultados_df = None, titulo = None):
         fig.suptitle(f'Visualização de {parametro} {titulo}')
         plt.tight_layout()
         plt.show()
+
+def plotar_desempenhos(data,titulo,parametro):
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [3, 1]})
+    # Histograma
+    ax[0].hist(data, bins=20, color='blue', alpha=0.7, edgecolor='black', label='Histograma', density=True)
+    sns.kdeplot(data, color='red', linewidth=2, label="Curva KDE", ax=ax[0], bw_adjust=0.5)
+    media = np.mean(data)
+    ax[0].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}")
+    ax[0].set_title(f"Histograma de {parametro}")
+    ax[0].set_xlabel("Valores")
+    ax[0].set_ylabel("Frequência")
+    ax[0].legend()
+    ax[0].grid(True)
+
+    # Boxplot
+    ax[1].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor='lightblue'), labels=[''])
+    ax[1].scatter(data, np.ones_like(data), color='red', alpha=0.6, s=20, label='Pontos')  
+    ax[1].axvline(max(data), color='gray', linestyle='dotted', linewidth=2, label=f"Valor máximo: {max(data):.2f}", alpha=0.7)
+    ax[1].axvline(media, color='black', linestyle='dashed', linewidth=2, label=f"Média: {media:.2f}", alpha=0.7)
+    ax[1].set_title(f"Box Plot de {parametro}")
+    ax[1].set_xlabel("Valores")
+    ax[1].legend()
+
+    fig.suptitle(f'Visualização de {parametro} {titulo}')
+    plt.tight_layout()
+    plt.show()
