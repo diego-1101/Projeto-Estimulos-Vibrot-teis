@@ -318,8 +318,8 @@ def teste_normalidade_shapiro(df, titulo = '', alpha=0.05):
 
     Returns:
         dict: Dicionário com os resultados do teste de normalidade para cada coluna.
-            1. 'Media_Desempenho': Lista com o valor W e o p-valor do teste de normalidade.
-            2. 'Media_Desempenho_Ponderado': Lista com o valor W e o p-valor do teste de normalidade.
+            1. 'Media_Desempenho': Lista com o valor W, o p-valor e se é ou não normal de acordo com alfa (0-> Não Normal, 1-> Normal) do teste de normalidade.
+            2. 'Media_Desempenho_Ponderado': Lista com o valor W, o p-valor e se é ou não normal de acordo com alfa (0-> Não Normal, 1-> Normal) do teste de normalidade.
     """
 
 
@@ -337,7 +337,11 @@ def teste_normalidade_shapiro(df, titulo = '', alpha=0.05):
     print(f"Desempenho médio ponderado: W={w2:.4f}, p-valor={p2:.4f} -> ", 
           f"✅Normal (alpha={alpha})" if p2 > alpha else f"❌Não normal (alpha={alpha})")
     
-    return {'Media_Desempenho':[w1, p1], 'Media_Desempenho_Ponderado': [w2, p2]}
+    if p1> alpha:
+        return {'Media_Desempenho':[w1, p1,1], 'Media_Desempenho_Ponderado': [w2, p2,1]}
+    else:
+        return {'Media_Desempenho':[w1, p1,0], 'Media_Desempenho_Ponderado': [w2, p2,0]}
+    
 
 def teste_normalidade_kstest(df, titulo = '', alpha=0.05):
     """Realiza o teste de normalidade de Kolmogorov-Smirnov para as colunas de desempenho médio e ponderado.
@@ -349,8 +353,8 @@ def teste_normalidade_kstest(df, titulo = '', alpha=0.05):
 
     Returns:
         dict: Dicionário com os resultados do teste de normalidade para cada coluna.
-            1. 'Media_Desempenho': Lista com o valor D e o p-valor do teste de normalidade.
-            2. 'Media_Desempenho_Ponderado': Lista com o valor D e o p-valor do teste de normalidade.
+            1. 'Media_Desempenho': Lista com o valor D, o p-valor e se é ou não normal de acordo com alfa (0-> Não Normal, 1-> Normal) do teste de normalidade.
+            2. 'Media_Desempenho_Ponderado': Lista com o valor D, o p-valor e se é ou não normal de acordo com alfa (0-> Não Normal, 1-> Normal) do teste de normalidade.
     """
 
     import pandas as pd
@@ -371,7 +375,10 @@ def teste_normalidade_kstest(df, titulo = '', alpha=0.05):
     print(f"Desempenho médio ponderado: D={d2:.4f}, p-valor={p2:.4f} -> ", 
           f"✅Normal (alpha={alpha})" if p2 > alpha else f"❌Não normal (alpha={alpha})")
     
-    return {'Media_Desempenho':[d1, p1], 'Media_Desempenho_Ponderado': [d2, p2]}
+    if d1> alpha:
+        return {'Media_Desempenho':[d1, p1,1], 'Media_Desempenho_Ponderado': [d2, p2,1]}
+    else:
+        return {'Media_Desempenho':[d1, p1,0], 'Media_Desempenho_Ponderado': [d2, p2,0]}
 
 
 #%%#---------------------------- Funções auxiliares gerais ----------------------------
