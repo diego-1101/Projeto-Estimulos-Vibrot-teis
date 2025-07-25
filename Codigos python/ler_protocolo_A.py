@@ -646,13 +646,147 @@ print("Resultados da ANOVA:")
 print(anova)
 print("-"*100)
 
-# Suponha que você quer comparar as médias de 'desempenho' entre os grupos de complexidade:
+# Comparar as médias de desempenho entre as complexidade:
 mc = MultiComparison(df['Media_Desempenho'], df['Complexidade'])
 resultado = mc.tukeyhsd()
 #print(resultado)
 
 # Print do resumo das comparações
 print(resultado.summary())
+
+#%% -------------------- ANOVA depois de fazer PCA --------------------
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
+
+df_concat_protA_cv['grupo'] = 'CV'
+df_concat_protA_sv['grupo'] = 'SV'
+df_protA = pd.concat([df_concat_protA_cv, df_concat_protA_sv], axis=0, ignore_index=True)
+df_protA['grupo'] = df_protA['grupo'].astype('category')
+
+df_protA['Especificidade'] = 1 - df_protA['Taxa de Falsos Positivos']
+#%%
+X = df_protA[['Acuracia','Especificidade','Similaridade','Proporção espacial x','Proporção espacial y']]  # ou mais variáveis
+
+# Padronizar os dados
+X_scaled = StandardScaler().fit_transform(X)
+
+# Aplicar PCA
+pca = PCA()
+X_pca = pca.fit_transform(X_scaled)
+#X_pca = pca.fit_transform(X)
+
+# Variância explicada
+exp_var = pca.explained_variance_ratio_
+cum_var = np.cumsum(exp_var)
+
+# Plot
+plt.figure(figsize=(10, 6))
+plt.plot(range(1, len(exp_var) + 1), exp_var, marker='o', label='Variância explicada (individual)')
+plt.plot(range(1, len(cum_var) + 1), cum_var, marker='s', linestyle='--', color='orange', label='Variância acumulada')
+
+# Marcar o ponto onde a variância acumulada atinge 90%
+for i, v in enumerate(cum_var):
+    if v >= 0.90:
+        plt.axvline(x=i + 1, color='red', linestyle='--', label='90% da variância')
+        break
+
+plt.title('Scree Plot e Variância Acumulada')
+plt.xlabel('Número de Componentes Principais')
+plt.ylabel('Proporção da Variância Explicada')
+plt.xticks(range(1, len(exp_var) + 1))
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Mostrar em formato de tabela
+for i, (v, c) in enumerate(zip(exp_var, cum_var), 1):
+    print(f'PC{i}: {v:.4f} ({c:.2%} acumulado)')
+
+#    Fazendo ANOVA com PCA
+df_protA['PC1'] = X_pca[:, 0]  # Projeção no primeiro componente principal
+
+modelo = ols('PC1 ~ grupo * Complexidade * Overlap', data=df_protA).fit()
+anova = sm.stats.anova_lm(modelo, typ=3)
+print(anova)
+
+"""mc = MultiComparison(df_protA['PC1'], df_protA['Overlap'])
+resultado = mc.tukeyhsd()
+#print(resultado)
+
+# Print do resumo das comparações
+print(resultado.summary())"""
+
+"""
+#Boxplot com Notch para comparar
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Complexidade', y='PC1', hue='grupo', data=df_protA, notch=True)
+plt.title('Boxplot com Notch por Complexidade e Grupo')
+plt.xlabel('Complexidade')
+plt.ylabel('PC1')
+plt.legend(title='Grupo')
+plt.show()"""
+
+#%% -------------------- ANOVA depois de fazer LDA --------------------
+# Recriando a versão equivalente do seu código, agora para o Canonical Discriminant Analysis (CDA / LDA)
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+import matplotlib.pyplot as plt
+
+
+# Selecionar variáveis contínuas
+X = df_protA[['Desempenho','Acuracia', 'Especificidade', 'Similaridade', 'Proporção espacial x', 'Proporção espacial y']]
+y = df_protA['grupo']
+
+# Padronizar os dados
+X_scaled = StandardScaler().fit_transform(X)
+
+# Aplicar CDA / LDA
+lda = LinearDiscriminantAnalysis()
+X_lda = lda.fit_transform(X_scaled, y)
+
+# Variância explicada por cada discriminante
+exp_var_lda = lda.explained_variance_ratio_
+cum_var_lda = np.cumsum(exp_var_lda)
+
+df_protA['LD1'] = X_lda[:, 0]  # Projeção no primeiro discriminante
+
+
+# Plotar a projeção dos grupos ao longo do LD1
+plt.figure(figsize=(10, 5))
+for group in df_protA['grupo'].cat.categories:
+    plt.hist(df_protA[df_protA['grupo'] == group]['LD1'], bins=20, alpha=0.6, label=group)
+plt.title('Projeção dos grupos na LD1 (Discriminante Canônico)')
+plt.xlabel('LD1')
+plt.ylabel('Contagem')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Coeficientes de cada variável na LD1
+coef_ld1 = pd.DataFrame({'Variável': X.columns, 'Coeficiente_LD1': lda.coef_[0]})
+print("Coeficientes da LD1:")
+print(coef_ld1)
+
+#    Fazendo ANOVA com LDA
+
+modelo = ols('LD1 ~ grupo * Complexidade * Overlap', data=df_protA).fit()
+anova = sm.stats.anova_lm(modelo, typ=3)
+print(anova)
+
+
+#Boxplot com Notch para comparar
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Complexidade', y='LD1', hue='grupo', data=df_protA, notch=True)
+plt.title('Boxplot com Notch por Complexidade e Grupo')
+plt.xlabel('Complexidade')
+plt.ylabel('LD1')
+plt.legend(title='Grupo')
+plt.show()
 
 # %% Salvando em .mat para mandar para o Jean   
 
@@ -765,3 +899,4 @@ savemat('desempenho_concat_comp_overlap.mat', desempenho_concat_comp_overlap)"""
 
 
 #%% 
+# %%
