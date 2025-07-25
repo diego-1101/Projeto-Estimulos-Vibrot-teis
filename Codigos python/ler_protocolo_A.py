@@ -548,47 +548,28 @@ d_sv, p_kstest_sv = kstest(df_concat_protA_sv['Desempenho'], 'norm', args=(df_co
 print(f'Estatística D: {d_sv}, p-valor: {p_kstest_sv}')
 print(f"✅Normal (alpha={alpha})" if p_kstest_sv > alpha else f"❌Não normal (alpha={alpha})")
 
+#%% ------------- Seleção dos dados que iremos fazer o teste de homogeneidade e ANOVA ---------------
 
-#%% --------------------------------------- Teste de Homogeneidade de Variância ---------------------------------------
-from scipy.stats import levene
-
-
-#%% --------------------------------------- Teste de Hipótese  ---------------------------------------
-
-
-#%% --------------------------------------- Teste de hipótese por ANOVA ---------------------------------------
-
-import statsmodels.api as sm
-from statsmodels.formula.api import ols
-from statsmodels.stats.multicomp import MultiComparison
-from statsmodels.stats.libqsturng import psturng  # usado internamente
+'''
+Para testar homogeneidade de variância e futuramente ANOVA, vamos utilizar um Data Frame que 
+engloba os dois procolos (A CV e A SV). 
+Esse Data Frame será criado a partir dos desempenhos médios agrupados
+por complexidade e por overlap.
+'''
 
 df_cv = desempenho_A_cv['por_complexidade_por_overlap']
 df_cv['grupo'] = 'CV'
 df_sv = desempenho_A_sv['por_complexidade_por_overlap']
 df_sv['grupo'] = 'SV'
-df = pd.concat([df_cv, df_sv], axis=0, ignore_index=True)
-df['grupo'] = df['grupo'].astype('category')
-df['Complexidade'] = df['Complexidade'].astype('category')
-df['Overlap'] = df['Overlap'].astype('category')
-df['Media_Desempenho'] = df['Media_Desempenho'].astype(float)
+df_desempenho_protA = pd.concat([df_cv, df_sv], axis=0, ignore_index=True)
+df_desempenho_protA['grupo'] = df_desempenho_protA['grupo'].astype('category')
+df_desempenho_protA['Complexidade'] = df_desempenho_protA['Complexidade'].astype('category')
+df_desempenho_protA['Overlap'] = df_desempenho_protA['Overlap'].astype('category')
+df_desempenho_protA['Media_Desempenho'] = df_desempenho_protA['Media_Desempenho'].astype(float)
 
+df = df_desempenho_protA.copy()
 
-# Assumindo que 'desempenho' é contínua, e grupo, complexidade e overlap são fatores:
-modelo = ols('Media_Desempenho ~ grupo * Complexidade * Overlap', data=df).fit()
-anova = sm.stats.anova_lm(modelo, typ=3)  
-print("Resultados da ANOVA:")
-print(anova)
-print("-"*100)
-
-# Suponha que você quer comparar as médias de 'desempenho' entre os grupos de complexidade:
-mc = MultiComparison(df['Media_Desempenho'], df['Complexidade'])
-resultado = mc.tukeyhsd()
-#print(resultado)
-
-# Print do resumo das comparações
-print(resultado.summary())
-#%%
+#%% Plotando os boxplots
 # Boxplot com notches por Complexidade
 plt.figure(figsize=(8, 6))
 df.boxplot(column='Media_Desempenho', by='Complexidade', notch=True, grid=False)
@@ -597,9 +578,8 @@ plt.suptitle('')
 plt.xlabel('Complexidade')
 plt.ylabel('Desempenho')
 plt.show()
-#%%
-import seaborn as sns
 
+import seaborn as sns
 plt.figure(figsize=(10, 6))
 sns.boxplot(x='Complexidade', y='Media_Desempenho', hue='grupo', data=df, notch=True)
 plt.title('Boxplot com Notch por Complexidade e Grupo')
@@ -607,8 +587,8 @@ plt.xlabel('Complexidade')
 plt.ylabel('Desempenho')
 plt.legend(title='Grupo')
 plt.show()
-#%%
-#--------------------------------------- Boxplot por Grupo + Complexidade ---------------------------------------
+
+# Boxplot por Grupo + Complexidade
 import matplotlib.pyplot as plt
 
 # Agrupamento por Complexidade e Grupo (ex: visao_4, visao_6 etc.)
@@ -630,6 +610,49 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
 
+
+#%% --------------------------------------- Teste de Homogeneidade de Variância ---------------------------------------
+from scipy.stats import levene
+
+# teste de Levene 
+from scipy.stats import levene
+# Teste de Levene para verificar a homogeneidade das variâncias
+from itertools import product
+
+comps = df['Complexidade'].unique()
+overs = df['Overlap'].unique()
+
+for c, o in product(comps, overs):
+    subset = df[(df['Complexidade'] == c) & (df['Overlap'] == o)]
+    sv = subset[subset['grupo'] == 'SV']['Media_Desempenho']
+    cv = subset[subset['grupo'] == 'CV']['Media_Desempenho']
+    
+    stat, p = levene(sv, cv)
+    print(f"Levene (Comp={c}, Overlap={o}): stat={stat:.3f}, p={p:.3f}")
+    print (f"Resultado: {'Variâncias homogêneas ✅' if p > 0.05 else 'Variâncias heterogêneas ❌'}\n")
+    print('-'*100)
+
+#%% --------------------------------------- Teste de hipótese por ANOVA ---------------------------------------
+
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from statsmodels.stats.multicomp import MultiComparison
+from statsmodels.stats.libqsturng import psturng  # usado internamente
+
+# Assumindo que 'desempenho' é contínua, e grupo, complexidade e overlap são fatores:
+modelo = ols('Media_Desempenho ~ grupo * Complexidade * Overlap', data=df).fit()
+anova = sm.stats.anova_lm(modelo, typ=3)  
+print("Resultados da ANOVA:")
+print(anova)
+print("-"*100)
+
+# Suponha que você quer comparar as médias de 'desempenho' entre os grupos de complexidade:
+mc = MultiComparison(df['Media_Desempenho'], df['Complexidade'])
+resultado = mc.tukeyhsd()
+#print(resultado)
+
+# Print do resumo das comparações
+print(resultado.summary())
 
 # %% Salvando em .mat para mandar para o Jean   
 
@@ -740,23 +763,5 @@ savemat('desempenho_protA_sv.mat', desempenho_protA_sv)
 savemat('desempenho_concat_comp_overlap.mat', desempenho_concat_comp_overlap)"""
 
 
-# %%Teste de se há diferença entre as variâncias 
-# teste de Levene 
-from scipy.stats import levene
-# Teste de Levene para verificar a homogeneidade das variâncias
-from itertools import product
-
-comps = df['Complexidade'].unique()
-overs = df['Overlap'].unique()
-
-for c, o in product(comps, overs):
-    subset = df[(df['Complexidade'] == c) & (df['Overlap'] == o)]
-    sv = subset[subset['grupo'] == 'SV']['Media_Desempenho']
-    cv = subset[subset['grupo'] == 'CV']['Media_Desempenho']
-    
-    stat, p = levene(sv, cv)
-    print(f"Levene (Comp={c}, Overlap={o}): stat={stat:.3f}, p={p:.3f}")
-    print (f"Resultado: {'Variâncias homogêneas' if p > 0.05 else 'Variâncias heterogêneas'}\n")
-    print('-'*100)
 
 #%% 
