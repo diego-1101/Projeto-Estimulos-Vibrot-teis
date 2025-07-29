@@ -366,7 +366,6 @@ resultado_A = pd.concat([resultados_A_CV_df,resultados_A_SV_df], axis = 0,ignore
 ev.plotar_distribuicoes_resultados(resultado_A, titulo = '(Protocolo A completo (CV e SV juntos))')"""
 #%% ------- Criando o DataFrame para os desempenhos medios em cada protocolo ---------
 
-
 # 1) Juntando todas as repetições de cada indivíduo 
 # 1.1) Criando o dataframe com tudo junto
 
@@ -497,7 +496,6 @@ resultado_normalidade_kstest_sv = []
 for tipo_desempenho in desempenho_A_cv.keys():
     
     resultado = ev.teste_normalidade_shapiro(desempenho_A_cv[tipo_desempenho],
-
                                           titulo=tipo_desempenho,alpha=alpha)
     print(resultado)
     resultado_normalidade_shapiro_cv.append(resultado)
@@ -610,10 +608,7 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
 
-
 #%% --------------------------------------- Teste de Homogeneidade de Variância ---------------------------------------
-from scipy.stats import levene
-
 # teste de Levene 
 from scipy.stats import levene
 # Teste de Levene para verificar a homogeneidade das variâncias
@@ -657,7 +652,6 @@ print(resultado.summary())
 #%% -------------------- ANOVA depois de fazer PCA --------------------
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-import pandas as pd
 
 df_concat_protA_cv['grupo'] = 'CV'
 df_concat_protA_sv['grupo'] = 'SV'
@@ -730,12 +724,8 @@ plt.show()"""
 
 #%% -------------------- ANOVA depois de fazer LDA --------------------
 # Recriando a versão equivalente do seu código, agora para o Canonical Discriminant Analysis (CDA / LDA)
-import pandas as pd
-import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-import matplotlib.pyplot as plt
-
 
 # Selecionar variáveis contínuas
 X = df_protA[['Desempenho','Acuracia', 'Especificidade', 'Similaridade', 'Proporção espacial x', 'Proporção espacial y']]
