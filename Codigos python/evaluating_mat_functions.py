@@ -400,42 +400,74 @@ def map_complexidade(num_traj):
     if num_traj in [7,8,9]:
         return 8
     
-def calcular_desempenhos_medios(df_concat,ids,complexidades,overlaps,trajetorias):
-    
+def calcular_desempenhos_medios(df_concat,ids=[],complexidades=[], overlaps= None, trajetorias = []):
+
     import pandas as pd
-    # Desempenho médio e médio ponderado por Overlap
-    res_1 = []
-    res_2 = []
-    res_3 = []
-    res_4 = []
-    for id in ids:
-        for overlap in overlaps:
-            dados_filtrados=df_concat[(df_concat['ID'] == id) & 
-                                            (df_concat['Overlap'] == overlap)
-                                            ]
-            media = dados_filtrados['Desempenho'].mean()
-            media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
-            res_1.append({'ID': id, 'Overlap': overlap, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
-        # Desempenho médio e médio ponderado por Complexidade
-        for complexidade in complexidades:
-            dados_filtrados=df_concat[(df_concat['ID'] == id) & 
-                                            (df_concat['Complexidade'] == complexidade)
-                                            ]
-            media = dados_filtrados['Desempenho'].mean()
-            media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
-            res_2.append({'ID': id, 'Complexidade': complexidade, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
-        # Desempenho médio e médio ponderado por Complexidade e Overlap
-        for overlap in overlaps:
-            for complexidade in complexidades:
+    
+    # Caso esteja no protocolo A, terá o overlap para avaliar, se não, teremos que avaliar sem overlap
+    if overlaps != None:
+        res_1 = []
+        res_2 = []
+        res_3 = []
+        res_4 = []
+        for id in ids:
+            # Desempenho médio e médio ponderado por Overlap
+            for overlap in overlaps:
                 dados_filtrados=df_concat[(df_concat['ID'] == id) & 
-                                                (df_concat['Complexidade'] == complexidade) & 
                                                 (df_concat['Overlap'] == overlap)
                                                 ]
                 media = dados_filtrados['Desempenho'].mean()
                 media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
-                res_3.append({'ID': id, 'Complexidade': complexidade, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
-        # Desempenho médio e médio ponderado por Trajetória 
-        for overlap in overlaps:
+                res_1.append({'ID': id, 'Overlap': overlap, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+            # Desempenho médio e médio ponderado por Complexidade
+            for complexidade in complexidades:
+                dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                                (df_concat['Complexidade'] == complexidade)
+                                                ]
+                media = dados_filtrados['Desempenho'].mean()
+                media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+                res_2.append({'ID': id, 'Complexidade': complexidade, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+            # Desempenho médio e médio ponderado por Complexidade e Overlap
+            for overlap in overlaps:
+                for complexidade in complexidades:
+                    dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                                    (df_concat['Complexidade'] == complexidade) & 
+                                                    (df_concat['Overlap'] == overlap)
+                                                    ]
+                    media = dados_filtrados['Desempenho'].mean()
+                    media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+                    res_3.append({'ID': id, 'Complexidade': complexidade, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+            # Desempenho médio e médio ponderado por Trajetória 
+            for overlap in overlaps:
+                for traj in trajetorias:
+                    dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                                    (df_concat['Overlap'] == overlap) & 
+                                                    (df_concat['Número da Trajetória'] == traj)
+                                                    ]
+                    media = dados_filtrados['Desempenho'].mean()
+                    media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+                    res_4.append({'ID': id, 'Número da trajetoria': traj, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+
+        desempenho = {
+            'por_overlap': pd.DataFrame(res_1),
+            'por_complexidade': pd.DataFrame(res_2),
+            'por_complexidade_por_overlap': pd.DataFrame(res_3),
+            'por_trajetoria_por_overlap': pd.DataFrame(res_4)
+        }
+    else:
+        # Caso não tenha o overlap, vamos calcular as médias sem ele
+        res_1 = []
+        res_2 = []
+        for id in ids:            
+            # Desempenho médio e médio ponderado por Complexidade
+            for complexidade in complexidades:
+                dados_filtrados=df_concat[(df_concat['ID'] == id) & 
+                                                (df_concat['Complexidade'] == complexidade)
+                                                ]
+                media = dados_filtrados['Desempenho'].mean()
+                media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
+                res_1.append({'ID': id, 'Complexidade': complexidade, 'Media_Desempenho': media, 'Media_Desempenho_Ponderado': media_nomalizada})
+            # Desempenho médio e médio ponderado por Trajetória 
             for traj in trajetorias:
                 dados_filtrados=df_concat[(df_concat['ID'] == id) & 
                                                 (df_concat['Overlap'] == overlap) & 
@@ -443,16 +475,12 @@ def calcular_desempenhos_medios(df_concat,ids,complexidades,overlaps,trajetorias
                                                 ]
                 media = dados_filtrados['Desempenho'].mean()
                 media_nomalizada = dados_filtrados['Desempenho ponderado com proporção'].mean()
-                res_4.append({'ID': id, 'Número da trajetoria': traj, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
+                res_2.append({'ID': id, 'Número da trajetoria': traj, 'Overlap': overlap, 'Media_Desempenho': media,'Media_Desempenho_Ponderado': media_nomalizada})
 
-
-
-    desempenho = {
-        'por_overlap': pd.DataFrame(res_1),
-        'por_complexidade': pd.DataFrame(res_2),
-        'por_complexidade_por_overlap': pd.DataFrame(res_3),
-        'por_trajetoria_por_overlap': pd.DataFrame(res_4)
-    }
+        desempenho = {
+            'por_complexidade': pd.DataFrame(res_1),
+            'por_trajetoria': pd.DataFrame(res_2)
+        }
 
     return desempenho
 
