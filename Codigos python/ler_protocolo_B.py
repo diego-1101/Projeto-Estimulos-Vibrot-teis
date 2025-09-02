@@ -295,13 +295,15 @@ for individuo in protB_cf_df.columns:
 '''
 #sparcial =[]
 #stotal = []
+#prec = []
+#rcll = []
 propx = []
 propy = []
 acur = []
-prec = []
-rcll = []
 fpr =[]
 sim = []
+desempenho = []
+desempenho_norm = []
 
 for individuo in protB_sf_df.columns:
     for rep in protB_sf_df.index:
@@ -372,6 +374,7 @@ for individuo in protB_sf_df.columns:
         sim = []
         desempenho = []
         desempenho_norm = []
+
 
 #%% # Vendo a distribuição dos resultados obtidos acima 
 """resultados_B_CF = {
@@ -486,7 +489,7 @@ ev.plotar_desempenhos(df_concat_protB_sf['Desempenho'], 'Desempenho de todo Prot
 alpha = 0.05
 
 print('---'*100)
-print('Teste de Normalidade dos desempenhos do Protocolo A CV')
+print('Teste de Normalidade dos desempenhos do Protocolo B CF')
 print('---'*100)
 
 resultado_normalidade_shapiro_cf = []
@@ -507,7 +510,7 @@ for tipo_desempenho in desempenho_B_cf.keys():
 
 print('\n')
 print('---'*100)
-print('Teste de Normalidade dos desempenhos do Protocolo A SV')
+print('Teste de Normalidade dos desempenhos do Protocolo B SF')
 print('---'*100)
 
 for tipo_desempenho in desempenho_B_sf.keys():
@@ -566,6 +569,22 @@ df_desempenho_protB['Media_Desempenho'] = df_desempenho_protB['Media_Desempenho'
 
 df = df_desempenho_protB.copy()
 
+#%% ------------- Teste de Homogeneidade de Variância ---------------
+# teste de Levene 
+from scipy.stats import levene
+
+comps = df['Complexidade'].unique()
+
+for c in comps:
+    subset = df[(df['Complexidade'] == c)]
+    sf = subset[subset['grupo'] == 'SF']['Media_Desempenho']
+    cf = subset[subset['grupo'] == 'CF']['Media_Desempenho']
+    
+    stat, p = levene(sf, cf)
+    print(f"Levene (Comp={c}): stat={stat:.3f}, p={p:.3f}")
+    print (f"Resultado: {'Variâncias homogêneas ✅' if p > 0.05 else 'Variâncias heterogêneas ❌'}\n")
+    print('-'*100)
+
 #%% Plotando os Boxplots
 
 # Boxplot com notches por Complexidade
@@ -581,6 +600,7 @@ import seaborn as sns
 plt.figure(figsize=(10, 6))
 sns.boxplot(x='Complexidade', y='Media_Desempenho', hue='grupo', data=df, notch=True)
 plt.title('Boxplot com Notch por Complexidade e Grupo')
+plt.yticks(np.arange(0, 1.1, 0.1))
 plt.xlabel('Complexidade')
 plt.ylabel('Desempenho')
 plt.legend(title='Grupo')
@@ -608,24 +628,6 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
 
-#%% ------------- Teste de Homogeneidade de Variância ---------------
-# teste de Levene 
-from scipy.stats import levene
-# Teste de Levene para verificar a homogeneidade das variâncias
-from itertools import product
-
-comps = df['Complexidade'].unique()
-overs = df['Overlap'].unique()
-
-for c, o in product(comps, overs):
-    subset = df[(df['Complexidade'] == c) & (df['Overlap'] == o)]
-    sv = subset[subset['grupo'] == 'SV']['Media_Desempenho']
-    cv = subset[subset['grupo'] == 'CV']['Media_Desempenho']
-    
-    stat, p = levene(sv, cv)
-    print(f"Levene (Comp={c}, Overlap={o}): stat={stat:.3f}, p={p:.3f}")
-    print (f"Resultado: {'Variâncias homogêneas ✅' if p > 0.05 else 'Variâncias heterogêneas ❌'}\n")
-    print('-'*100)
 
 #%% --------------------------------------- Teste de hipótese por ANOVA ---------------------------------------
 
@@ -634,7 +636,7 @@ from statsmodels.formula.api import ols
 from statsmodels.stats.multicomp import MultiComparison
 from statsmodels.stats.libqsturng import psturng  # usado internamente
 
-# Assumindo que 'desempenho' é contínua, e grupo, complexidade e overlap são fatores:
+# Assumindo que 'desempenho' é contínua e grupo e complexidade  são fatores:
 modelo = ols('Media_Desempenho ~ grupo * Complexidade', data=df).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)  
 print("Resultados da ANOVA:")
@@ -649,19 +651,45 @@ resultado = mc.tukeyhsd()
 # Print do resumo das comparações
 print(resultado.summary())
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-#ADICIONAR AQUI UMA ANOVA SEM AGRUPAR POR COMPLEXIDADE
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-#%% -------- PCA + ANOVA --------
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+#%% Juntando tudo em um data frame só para poder fazer outros testes
 
 df_concat_protB_cf['grupo'] = 'CF'
 df_concat_protB_sf['grupo'] = 'SF'
 df_protB = pd.concat([df_concat_protB_cf, df_concat_protB_sf], ignore_index=True)
 df_protB['grupo'] = df_protB['grupo'].astype('category')
 df_protB['Especificidade'] = 1 - df_protB['Taxa de Falsos Positivos']
+df_protB = df_protB[df_protB['ID']!= 'df_ID_01']
+
+#%% -------- ANOVA sem agrupar por complexidade --------
+from statsmodels.formula.api import ols
+import statsmodels.api as sm
+
+modelo = ols('Desempenho ~ grupo * Complexidade', data=df_protB).fit()
+anova = sm.stats.anova_lm(modelo, typ=3) 
+print('---'*100)
+print('ANOVA sem agrupar por complexidade - Protocolo B')
+print(anova)
+print('---'*100)
+
+"""# Se tiver diferença significativa, fazer o teste de Tukey
+mc = MultiComparison(df_protB['Desempenho'], df_protB['grupo'])
+resultado = mc.tukeyhsd()
+print(resultado.summary())"""
+
+#%% Boxplots
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Complexidade', y='Desempenho', hue='grupo', data=df_protB, notch=True)
+plt.title('Boxplot com Notch por Complexidade e Grupo')
+plt.yticks(np.arange(0, 1.5, 0.1))
+
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='grupo', y='Desempenho', hue='Complexidade', data=df_protB, notch=True, palette='Set2')
+plt.title('Boxplot com Notch do Desempenho por Grupo e Complexidade')
+plt.yticks(np.arange(0, 1.5, 0.1))
+
+#%% -------- PCA + ANOVA --------
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 X = df_protB[['Acuracia','Especificidade','Similaridade','Proporção espacial x','Proporção espacial y']]
 X_scaled = StandardScaler().fit_transform(X)
@@ -697,6 +725,12 @@ plt.show()
 for i, (v, c) in enumerate(zip(exp_var, cum_var), 1):
     print(f'PC{i}: {v:.4f} ({c:.2%} acumulado)')
 
+print('---'*100)
+print('Quanto cada variável pesa em cada componente principal:')
+print('| Acurácia | Especificidade | Similaridade | Prop x | Prop y |')
+print(pca.components_)
+print('---'*100)
+
 df_protB['PC1'] = X_pca[:, 0]
 
 modelo_pca = ols('PC1 ~ grupo * Complexidade', data=df_protB).fit()
@@ -708,7 +742,8 @@ print(anova_pca)
 
 #%%
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-X = df_protB[['Desempenho','Acuracia', 'Especificidade', 'Similaridade', 'Proporção espacial x', 'Proporção espacial y']]
+X = df_protB[['Acuracia', 'Especificidade', 'Similaridade', 
+              'Proporção espacial x', 'Proporção espacial y']]
 y = df_protB['grupo']
 X_scaled = StandardScaler().fit_transform(X)
 
@@ -729,6 +764,15 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
+plt.figure(figsize=(10, 6))
+for group in df_protB['grupo'].cat.categories:
+    plt.scatter(df_protB[df_protB['grupo'] == group]['LD1'], df_protB[df_protB['grupo'] == group]['LD1'],label=group, alpha=0.6)
+plt.title('Projeção dos grupos na LD1 (Discriminante Canônico)')
+plt.xlabel('LD1')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+
 # Coeficientes de cada variável na LD1
 coef_ld1 = pd.DataFrame({'Variável': X.columns, 'Coeficiente_LD1': lda.coef_[0]})
 print("Coeficientes da LD1:")
@@ -740,6 +784,33 @@ print('---'*100)
 print('ANOVA com LDA (LD1) - Protocolo B')
 print('---'*100)
 print(anova_lda)
+#%%
+
+plt.figure(figsize=(12, 2.5))
+sns.stripplot(data=df_protB, x='LD1', hue='grupo', dodge=True, size=6, alpha=0.7, palette='Set1', orient='h', jitter=False)
+
+plt.title('Distribuição 1D da projeção LD1 por grupo')
+plt.xlabel('LD1')
+plt.yticks([])
+plt.legend(title='Grupo', bbox_to_anchor=(1.01, 1), borderaxespad=0)
+plt.grid(True, axis='x')
+plt.tight_layout()
+
+#%%
+plt.figure(figsize=(12, 4))
+
+# Gráfico de densidade por grupo
+sns.violinplot(data=df_protB, x='LD1', y='grupo', inner=None, palette='Set1', linewidth=1.2)
+
+# Gráfico de pontos por cima (stripplot)
+sns.stripplot(data=df_protB, x='LD1', y='grupo', color='k', alpha=0.5, size=5, jitter=False)
+
+plt.title('Distribuição da projeção LD1 por grupo (Violin + Stripplot)')
+plt.xlabel('LD1')
+plt.ylabel('')
+plt.grid(True, axis='x')
+plt.tight_layout()
+plt.show()
 
 #%% Boxplots para comparar
 
@@ -750,3 +821,71 @@ plt.xlabel('Complexidade')
 plt.ylabel('LD1')
 plt.legend(title='Grupo')
 plt.show()
+
+#%% ---------- Teste de hipótese não paramétrico (Kruskal-Wallis) ---------------
+# Entre grupos
+from scipy.stats import kruskal
+# Teste de Kruskal-Wallis
+stat, p_value = kruskal(*[group['Desempenho'].values for name, group in df_protB.groupby('grupo')])
+print(f'Estatística de Kruskal-Wallis: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas entre os grupos (grupo) no desempenho.") 
+else:
+    print("Não há diferenças significativas entre os grupos (grupo) no desempenho.")
+
+import scikit_posthocs as sp
+
+posthoc = sp.posthoc_dunn(df_protB, val_col='Desempenho', group_col='grupo', p_adjust='bonferroni')
+print(posthoc)
+
+df_protB.boxplot(column='Desempenho', by='grupo', grid=False, notch=True)
+
+# Entre Complexidades
+
+# Teste de Kruskal-Wallis
+stat, p_value = kruskal(*[group['Desempenho'].values for name, group in df_protB.groupby('Complexidade')])
+print(f'Estatística de Kruskal-Wallis: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas entre os grupos (Complexidade) no desempenho.") 
+else:
+    print("Não há diferenças significativas entre os grupos (Complexidade) no desempenho.")
+
+posthoc = sp.posthoc_dunn(df_protB, val_col='Desempenho', group_col='Complexidade', p_adjust='bonferroni')
+print(posthoc)
+
+df_protB.boxplot(column='Desempenho', by='Complexidade', grid=False, notch=True)
+
+#%% Teste de Friedman 
+#%% Teste de hipótese não paramétrico de Friedman
+from scipy.stats import friedmanchisquare
+import scikit_posthocs as sp
+# Agrupar os dados por ID e calcular a média do desempenho para cada grupo
+#df_friedman = df_protB.groupby(['Overlap', 'Complexidade','grupo'])['Desempenho'].mean().unstack('grupo').unstack('Overlap')
+df_friedman = df_protB.groupby(['ID','Complexidade'])['Desempenho'].mean().unstack('Complexidade')
+"""print(df_friedman.head())
+df_friedman = df_friedman.dropna()  # Remover linhas com valores NaN
+print(df_friedman.head())"""
+# Realizar o teste de Friedman
+stat, p_value = friedmanchisquare(*[df_friedman[col] for col in df_friedman.columns])
+print(f'Estatística de Friedman: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas no desempenho.")
+
+    #Post-hoc de Nemenyi
+
+    #passando os dados para o formato correto
+    df_friedman.columns = [f'C{cx}' for cx in df_friedman.columns]
+    df_friedman.reset_index('ID').melt(id_vars='ID', var_name='Condicao', value_name='Desempenho')
+    #fazendo o post-hoc
+    posthoc = sp.posthoc_nemenyi_friedman(df_friedman)
+    #print(posthoc)
+
+    sns.heatmap(posthoc, annot=True, fmt=".3f", 
+    cmap="Reds", cbar_kws={"label": "p-valor"}, center=0.05)
+    plt.title("Post-hoc de Nemenyi (p-valores)")
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não há diferenças significativas no desempenho.")

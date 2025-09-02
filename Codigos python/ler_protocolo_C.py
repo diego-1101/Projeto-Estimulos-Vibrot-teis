@@ -75,8 +75,8 @@ def transformar_protC_mat_em_df(protocolo, id=['08', '11', '14', '20', '22', '30
 
         # Armazenar os DataFrames dessa pessoa
         prot_df[f'df_ID_{ID}'] = {
-            'Fase de Exploração': exploracao_df,
-            'Fase de Execução': execucao_df
+            'Fase Exploracao': exploracao_df,
+            'Fase Execucao': execucao_df
         }
 
     # Estrutura final: DataFrame com os indivíduos como colunas
@@ -85,16 +85,14 @@ def transformar_protC_mat_em_df(protocolo, id=['08', '11', '14', '20', '22', '30
     return df_final
 
 
-#%% 
 #ID dos pacientes naquele protocolo
 id = ['08', '11', '14', '20', '22', '30', '35', '41', '44']
 
 # Carregar o arquivo .mat do protocolo 
 C = loadmat('Aquivos mat\ProtC.mat')
-#%%
-# Acessar o conteúdo de ProtB_SF
-ProtC = C['ProtC']  # ProtB_SF é uma célula de células !!!!!!!!!!!!!
 
+# Acessar o conteúdo de ProtC
+ProtC = C['ProtC']  
 
 # Convertendo para um DataFrame
 protC_df = transformar_protC_mat_em_df(protocolo = ProtC, id = id)
@@ -118,17 +116,19 @@ for i in gabarito.columns:
 '''
 #sparcial =[]
 #stotal = []
+#prec = []
+#rcll = []
 propx = []
 propy = []
 acur = []
-prec = []
-rcll = []
 fpr =[]
 sim = []
+desempenho = []
+desempenho_norm = []
 
 for individuo in protC_df.columns:
     #como para esse protocolo só na fase de execução tem avaliação do desempenho, só irei usar a parte de 'Fase de Execução' do data frame
-    teste = protC_df[individuo]['Fase de Execução']
+    teste = protC_df[individuo]['Fase Execucao']
 
     for i, num in enumerate(teste['Número da Trajetória']):
         # Armazenando as sequencias da vez em cada variavel
@@ -151,49 +151,6 @@ for individuo in protC_df.columns:
         else:
             certo = np.pad(certo,(0,len(certo)-len(seq)), mode ='constant', constant_values = 0)
         
-        '''
-        # 1) Avaliar o match perfeito para poder normalizar depois
-        soma_perfeita = 0
-        soma_perfeita_uns = 0 
-        resultado_perfeito, resultado_perfeito_uns  = ev.avaliar_match_dinamico(certo, certo)
-        
-        for j in resultado_perfeito:
-            soma_perfeita += np.sum(j)
-        
-        for j in resultado_perfeito_uns:
-            soma_perfeita_uns += np.sum(j)
-
-        # 2) Avaliar o match real
-        soma_real = 0
-        soma_real_uns = 0
-
-        resultado_real, resultado_real_uns = ev.avaliar_match_dinamico(seq, certo)
-        
-        for j in resultado_real:
-            soma_real += np.sum(j)
-        
-        for j in resultado_real_uns:
-            soma_real_uns += np.sum(j)
-
-        # 3) Dividir o match perfeito pelo real para obter o score parcial
-        score_parcial = soma_real/soma_perfeita
-        score_parcial_uns = soma_real_uns/soma_perfeita_uns
-
-        # 4) score total sendo a média do score parcial ponderado pela proporção explorada em x e em y
-        score_total = ((score_parcial*teste['Proporção espacial x'][i]) + 
-                        (score_parcial*teste['Proporção espacial y'][i]) 
-                        )/2
-        
-        score_total_uns = ((score_parcial_uns*teste['Proporção espacial x'][i]) + 
-                        (score_parcial_uns*teste['Proporção espacial y'][i]) 
-                        )/2
-        
-        """print('--'*100)
-        print(f'Trajetória {num}')
-        print(f'Score parcial = {score_parcial} \nScore Total = {score_total}')
-        print(f'Trajetória {num}')
-        print(f'Score parcial uns = {score_parcial_uns} \nScore Total = {score_total_uns}')"""
-        '''    
         #---- Avaliando por comparação de imagem (IDEIA 3)
         resultado_ideia3 = ev.comparar_imagem(seq1=seq1,seq2=seq2,plotar_imagens = False)
 
@@ -204,24 +161,39 @@ for individuo in protC_df.columns:
         #stotal.append(score_total_uns)
         propx.append(float(teste['Proporção espacial x'][i]))
         propy.append(float(teste['Proporção espacial y'][i]))
+        #prec.append(resultado_ideia3[1])
+        #rcll.append(resultado_ideia3[2])
         acur.append(resultado_ideia3[0])
-        prec.append(resultado_ideia3[1])
-        rcll.append(resultado_ideia3[2])
         fpr.append(resultado_ideia3[3])
         sim.append(resultado_ideia4)
+        #Desempenho calculado através da ideia de combinação das métricas escolhidas
+        r1, r2 = ev.calcular_desempenho( acur=resultado_ideia3[0], 
+                                                                 fpr=resultado_ideia3[3], 
+                                                                 sim = resultado_ideia4, 
+                                                                 propx=float(teste['Proporção espacial x'][i]), 
+                                                                 propy=float(teste['Proporção espacial y'][i]))
+        desempenho.append(r1)
+        desempenho_norm.append(r2)
+    protC_df[individuo]['Fase Execucao']['Acuracia'] = acur
+    protC_df[individuo]['Fase Execucao']['Media Acuracia'] = np.mean(acur)
+    protC_df[individuo]['Fase Execucao']['Taxa de Falsos Positivos'] = fpr
+    protC_df[individuo]['Fase Execucao']['Media FPR'] = np.mean(fpr)
+    protC_df[individuo]['Fase Execucao']['Similaridade'] = sim
+    protC_df[individuo]['Fase Execucao']['Media Similaridade'] = np.mean(sim)
+    protC_df[individuo]['Fase Execucao']['Desempenho'] = desempenho
+    protC_df[individuo]['Fase Execucao']['Desempenho ponderado com proporção'] = desempenho_norm
+    
+    #Reiniciando as listas para a próxima iteração
+    #prec = []
+    #rcll = []
+    acur = []
+    fpr =[]
+    sim = []
+    desempenho = []
+    desempenho_norm = []
 
-    """ # Plotando o comparativo das trajetórias
-        plotar.plot_comparacao(gabarito=seq2, seq= seq1)
-
-        # Printando os resultados
-        print('--------- ' + f'Trajetória {num}' + ' ---------')
-        print(f'-> Resultado da ideia 2 (comparação por matchs perfeitos):\nScore parcial: {score_parcial_uns} | Score total: {score_total_uns}')
-        print(f'-> Resultado da ideia 3 (comparação de imagens):\nAcurácia: {resultado_ideia3[0]:.4f} | Precisão: {resultado_ideia3[1]:.4f}\nRecall: {resultado_ideia3[2]:.4f} | FPR: {resultado_ideia3[3]:.4f}')
-        print(f'-> Resultado da ideia 4 (comparação por similaridade):\nSimilaridade entre as trajetórias: {resultado_ideia4}')
-        print('--'*100)"""
-
-# Vendo a distribuição dos resultados obtidos acima 
-resultadosC = {
+#%% Vendo a distribuição dos resultados obtidos acima 
+"""resultadosC = {
     #'Score Parcial':sparcial,
     #'Score Total':stotal,
     'Propx':propx,
@@ -236,21 +208,264 @@ resultadosC = {
 resultados_C_df = pd.DataFrame(resultadosC)
 
 #Plotando as distribuições 
-ev.plotar_distribuicoes_resultados(resultados_C_df, titulo = '(Protocolo C)')
+ev.plotar_distribuicoes_resultados(resultados_C_df, titulo = '(Protocolo C)')"""
 
-#%% Salvando os resultados das métricas
 
-'''# Arquivo C
-resultados_C_df.to_csv('Resultados Metricas ProtC.csv')'''
-# %% Plotando tudo só para ver como fica
+#%% ------- Criando o DataFrame para os desempenhos medios do protocolo ---------
+lista_concatenada = []
 
-protA_cv = pd.read_csv('Resultados Metricas ProtA CV.csv')
-protA_sv = pd.read_csv('Resultados Metricas ProtA SV.csv')
-protB_cf = pd.read_csv('Resultados Metricas ProtB CF.csv')
-protB_sf = pd.read_csv('Resultados Metricas ProtB CF.csv') 
+for individuo in protC_df.columns:
+    for fase in protC_df[individuo].index:
+        df_tmp = protC_df[individuo][fase].copy()
+        df_tmp['ID'] = individuo
+        df_tmp['Fase'] = fase
+        lista_concatenada.append(df_tmp)
 
-all = pd.concat([protA_cv,protA_sv,protB_cf,protB_sf,resultados_C_df], axis = 0,ignore_index=True)
-all = all.drop(columns='Unnamed: 0')
+df_concat_protC = pd.concat(lista_concatenada, ignore_index=True)
 
-ev.plotar_distribuicoes_resultados(all,titulo='Todos os protocolos (A CV + A SV + B CF + B SF + C)')
-# %%
+df_concat_protC['Complexidade'] = df_concat_protC['Número da Trajetória'].apply(ev.map_complexidade)
+
+# Tipagem correta
+df_concat_protC['ID'] = df_concat_protC['ID'].astype(str)
+df_concat_protC['Fase'] = df_concat_protC['Fase'].astype(str)
+df_concat_protC['Número da Trajetória'] = df_concat_protC['Número da Trajetória'].astype(int)
+
+df = df_concat_protC[df_concat_protC['Fase']== 'Fase Execucao'].copy()
+
+# %% Distribuição do desempenho da fase de execução do Protocolo C 
+
+print('---'*100)
+print('Desempenhos da fase de execução do Protocolo C')
+print('---'*100)
+ev.plotar_desempenhos(df['Desempenho'], 'Desempenhos da fase de execução do Protocolo C',
+                       'Desempenho')
+
+#%% Normalidade 
+from scipy.stats import shapiro, kstest
+print('\n')
+print('---'*100)
+print('Teste de Normalidade dos desempenhos da fase de execução do Protocolo C')
+print('---'*100)
+alpha = 0.05
+w_c, p_shapiro_c = shapiro(df['Desempenho'])
+print(f'Estatística W: {w_c}, p-valor: {p_shapiro_c}')
+print(f"✅Normal (alpha={alpha})" if p_shapiro_c > alpha else f"❌Não normal (alpha={alpha})")
+d_c, p_kstest_c = kstest(df['Desempenho'], 'norm', args=(df['Desempenho'].mean(), df['Desempenho'].std()))
+print(f'Estatística D: {d_c}, p-valor: {p_kstest_c}')
+print(f"✅Normal (alpha={alpha})" if p_kstest_c > alpha else f"❌Não normal (alpha={alpha})")  
+print('---'*100)
+
+#%% Teste de Homogeneidade de Variâncias
+from scipy.stats import levene
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#%% Boxplot
+
+# Boxplot com notches por Complexidade
+plt.figure(figsize=(8, 6))
+sns.boxplot(x='Complexidade', y='Desempenho', data=df, notch=True)
+plt.title('Boxplot com Notch por Complexidade')
+plt.suptitle('')
+plt.yticks(np.arange(0, 1.5, 0.1), fontsize=10)
+plt.xlabel('Complexidade')
+plt.ylabel('Desempenho')
+plt.show()
+
+#%% --------------------------------------- Teste de hipótese por ANOVA ---------------------------------------
+
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from statsmodels.stats.multicomp import MultiComparison
+from statsmodels.stats.libqsturng import psturng  # usado internamente
+
+# Assumindo que 'desempenho' é contínua, e grupo, complexidade e overlap são fatores:
+modelo = ols('Desempenho ~ Complexidade', data=df).fit()
+anova = sm.stats.anova_lm(modelo, typ=3)  
+print("Resultados da ANOVA:")
+print(anova)
+print("-"*100)
+
+# Comparar as médias de desempenho entre as complexidade:
+mc = MultiComparison(df['Desempenho'], df['Complexidade'])
+resultado = mc.tukeyhsd()
+#print(resultado)
+
+# Print do resumo das comparações
+print(resultado.summary())
+
+#%% -------------------- PCA + ANOVA --------------------
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+df_concat_protC['Especificidade'] = 1 - df_concat_protC['Taxa de Falsos Positivos']
+df = df_concat_protC[df_concat_protC['Fase']== 'Fase Execucao'].copy()
+
+X = df[['Acuracia', 'Especificidade', 'Proporção espacial x', 'Proporção espacial y', 'Similaridade']]
+
+X_scaled = StandardScaler().fit_transform(X)
+
+pca = PCA()
+X_pca = pca.fit_transform(X_scaled)
+
+# Variância explicada
+exp_var = pca.explained_variance_ratio_
+cum_var = np.cumsum(exp_var)
+
+# Plot
+plt.figure(figsize=(10, 6))
+plt.plot(range(1, len(exp_var) + 1), exp_var, marker='o', label='Variância explicada (individual)')
+plt.plot(range(1, len(cum_var) + 1), cum_var, marker='s', linestyle='--', color='orange', label='Variância acumulada')
+
+# Marcar o ponto onde a variância acumulada atinge 90%
+for i, v in enumerate(cum_var):
+    if v >= 0.90:
+        plt.axvline(x=i + 1, color='red', linestyle='--', label='90% da variância')
+        break
+
+plt.title('Scree Plot e Variância Acumulada')
+plt.xlabel('Número de Componentes Principais')
+plt.ylabel('Proporção da Variância Explicada')
+plt.xticks(range(1, len(exp_var) + 1))
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Mostrar em formato de tabela
+for i, (v, c) in enumerate(zip(exp_var, cum_var), 1):
+    print(f'PC{i}: {v:.4f} ({c:.2%} acumulado)')
+
+print('---'*100)
+print('Quanto cada variável pesa em cada componente principal:')
+print('| Acurácia | Especificidade | Similaridade | Prop x | Prop y |')
+print(pca.components_)
+print('---'*100)
+
+#    Fazendo ANOVA com PCA
+df['PC1'] = X_pca[:, 0]  # Usando o primeiro componente principal
+modelo = ols('PC1 ~ Complexidade', data=df).fit()
+anova = sm.stats.anova_lm(modelo, typ=3)
+print(anova)
+
+# Comparar as médias de desempenho entre as complexidade:
+mc = MultiComparison(df['PC1'], df['Complexidade'])
+resultado = mc.tukeyhsd()
+#print(resultado)
+
+# Print do resumo das comparações
+print(resultado.summary())
+
+#Box plot do PCA
+# Boxplot com notches por Complexidade
+plt.figure(figsize=(8, 6))
+df.boxplot(column='PC1', by='Complexidade', notch=True, grid=False)
+plt.title('Boxplot com Notch por Complexidade')
+plt.suptitle('')
+plt.xlabel('Complexidade')
+plt.ylabel('PC1')
+plt.show()
+
+
+#%% -------------------- LDA + ANOVA --------------------
+from sklearn.preprocessing import StandardScaler
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+# Selecionar variáveis contínuas
+df['Complexidade'] = df['Complexidade'].astype('category')  # Garantir que Complexidade é categórica
+X = df[['Acuracia', 'Especificidade', 'Similaridade', 'Proporção espacial x', 'Proporção espacial y']]
+y = df['Complexidade'] 
+
+# Padronizar os dados
+X_scaled = StandardScaler().fit_transform(X)
+
+# Aplicar CDA / LDA
+lda = LinearDiscriminantAnalysis()
+X_lda = lda.fit_transform(X_scaled, y)
+
+# Variância explicada por cada discriminante
+exp_var_lda = lda.explained_variance_ratio_
+cum_var_lda = np.cumsum(exp_var_lda)
+
+df['LD1'] = X_lda[:, 0]  # Projeção no primeiro discriminante
+
+# Plotar a projeção dos grupos ao longo do LD1
+plt.figure(figsize=(10, 5))
+for comp in df['Complexidade'].cat.categories:
+    plt.hist(df[df['Complexidade'] == comp]['LD1'], bins=20, alpha=0.6, label=comp)
+plt.title('Projeção dos grupos na LD1 (Discriminante Canônico)')
+plt.xlabel('LD1')
+plt.ylabel('Contagem')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Coeficientes de cada variável na LD1
+coef_ld1 = pd.DataFrame({'Variável': X.columns, 'Coeficiente_LD1': lda.coef_[0]})
+print("Coeficientes da LD1:")
+print(coef_ld1)
+
+#    Fazendo ANOVA com LDA
+modelo = ols('LD1 ~ Complexidade', data=df).fit()
+anova = sm.stats.anova_lm(modelo, typ=3)
+print(anova)
+# Comparar as médias de desempenho entre as complexidade:
+mc = MultiComparison(df['LD1'], df['Complexidade'])
+resultado = mc.tukeyhsd()
+print(resultado)
+
+
+#Boxplot com Notch para comparar
+plt.figure(figsize=(10, 6))
+df.boxplot(column='LD1', by='Complexidade', notch=True, grid=False, patch_artist=True)
+plt.title('Boxplot com Notch por Complexidade e Grupo')
+plt.xlabel('Complexidade')
+plt.ylabel('LD1')
+plt.legend(title='Grupo')
+plt.show()
+
+#%% qq plot dos resíduos
+import statsmodels.api as sm
+
+sm.qqplot(df, line='s')
+plt.title('QQ Plot dos Resíduos do Modelo LDA')
+plt.grid()
+
+#%% ------------- Teste não paramétrico de Kruskal-Wallis -------------
+from scipy.stats import kruskal
+# Teste de Kruskal-Wallis
+stat, p_value = kruskal(*[group['Desempenho'].values for name, group in df.groupby('Complexidade')])
+print(f'Estatística de Kruskal-Wallis: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas entre os grupos (Complexidade) no desempenho.") 
+else:
+    print("Não há diferenças significativas entre os grupos (Complexidade) no desempenho.")
+
+import scikit_posthocs as sp
+
+posthoc = sp.posthoc_dunn(df, val_col='Desempenho', group_col='Complexidade', p_adjust='bonferroni')
+print(posthoc)
+
+# %% Salvando em .mat para o Jean analisar
+
+import unicodedata
+from scipy.io import savemat
+
+def remover_acentos(texto):
+    # Remove acentos e normaliza para ASCII
+    texto_ascii = unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII')
+    # Substitui espaços por underline
+    texto_formatado = texto_ascii.replace(' ', '_')
+    return texto_formatado
+
+def normalizar_dicionario(d):
+    if isinstance(d, dict):
+        return {remover_acentos(str(k)): normalizar_dicionario(v) for k, v in d.items()}
+    elif isinstance(d, list):
+        return [normalizar_dicionario(i) for i in d]
+    else:
+        return d
+#%%
+protC = df_concat_protC.to_dict('list')
+
+protC = normalizar_dicionario(protC)
+
+# Salvando o dicionário em um arquivo .mat
+savemat('ProtC_normalizado.mat', protC)

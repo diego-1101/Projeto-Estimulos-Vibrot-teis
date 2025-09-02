@@ -244,15 +244,16 @@ for individuo in protA_cv_df.columns:
 '''Calculando os resultados das métricas de comparação de trajetória para todas as repetições
   de todos os individuos do protocolo A SV
 '''
-#sparcial =[]
-#stotal = []
+
+#prec = []
+#rcll = []
 propx = []
 propy = []
 acur = []
-prec = []
-rcll = []
 fpr =[]
 sim = []
+desempenho = []
+desempenho_norm = []
 
 for individuo in protA_sv_df.columns:
     for rep in protA_sv_df.index:
@@ -611,7 +612,6 @@ plt.show()
 #%% --------------------------------------- Teste de Homogeneidade de Variância ---------------------------------------
 # teste de Levene 
 from scipy.stats import levene
-# Teste de Levene para verificar a homogeneidade das variâncias
 from itertools import product
 
 comps = df['Complexidade'].unique()
@@ -641,26 +641,69 @@ print("Resultados da ANOVA:")
 print(anova)
 print("-"*100)
 
+'''
+Como na ANOVA, vemmos que o único fator que é significativo é a junção entre grupo e complexidade,
+ou seja, a interação entre o grupo (CV ou SV) e a complexidade da tarefa, então
+faremos um post hoc para explorar essa interação mais a fundo.
+'''
+df['grupo_complexidade'] = df['grupo'].astype(str) + '_C' + df['Complexidade'].astype(str)
+
 # Comparar as médias de desempenho entre as complexidade:
-mc = MultiComparison(df['Media_Desempenho'], df['Complexidade'])
+mc = MultiComparison(df['Media_Desempenho'], df['grupo_complexidade'])
 resultado = mc.tukeyhsd()
 #print(resultado)
 
 # Print do resumo das comparações
 print(resultado.summary())
 
-#%% -------------------- ANOVA depois de fazer PCA --------------------
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-
+#%% -------------------- ANOVA sem agrupar (com todo o desempenho) --------------------
 df_concat_protA_cv['grupo'] = 'CV'
 df_concat_protA_sv['grupo'] = 'SV'
 df_protA = pd.concat([df_concat_protA_cv, df_concat_protA_sv], axis=0, ignore_index=True)
 df_protA['grupo'] = df_protA['grupo'].astype('category')
 
 df_protA['Especificidade'] = 1 - df_protA['Taxa de Falsos Positivos']
-#%%
-X = df_protA[['Acuracia','Especificidade','Similaridade','Proporção espacial x','Proporção espacial y']]  # ou mais variáveis
+
+modelo = ols('Desempenho ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
+anova = sm.stats.anova_lm(modelo, typ=2)
+print("Resultados da ANOVA sem agrupar:")
+print(anova)
+
+mc = MultiComparison(df_protA['Desempenho'], df_protA['Complexidade'])
+resultado = mc.tukeyhsd()
+print(resultado.summary())
+
+#%% #Boxplots
+# Boxplots do desempenho sem agrupar
+sns.boxplot(x='Complexidade', y='Desempenho', hue='grupo', data=df_protA, notch=True)
+plt.title('Boxplot com Notch por Complexidade e Grupo (Desempenho)')
+plt.xlabel('Complexidade')
+plt.ylabel('Desempenho')
+plt.yticks(np.arange(0, 1.5, 0.1))
+plt.legend(title='Grupo')
+
+# Boxplot do desempenho por Overlap e Grupo
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Overlap', y='Desempenho', hue='grupo', data=df_protA, notch=True)
+plt.title('Boxplot com Notch por Overlap e Grupo (Desempenho)')
+plt.xlabel('Overlap')
+plt.ylabel('Desempenho')
+plt.yticks(np.arange(0, 1.5, 0.1))
+plt.legend(title='Grupo')
+
+# Boxplot do desempenho por grupo de acordo com a complexidade
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='grupo', y='Desempenho', hue='Complexidade', data=df_protA, notch=True, palette='Set2')
+plt.title('Boxplot com Notch do Desempenho do Grupo de acordo com a Complexidade')
+plt.xlabel('Grupo')
+plt.ylabel('Desempenho')
+plt.yticks(np.arange(0, 1.5, 0.1))
+plt.legend(title='Complexidade')
+#%% -------------------- ANOVA depois de fazer PCA --------------------
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+X = df_protA[['Acuracia','Especificidade','Similaridade','Proporção espacial x','Proporção espacial y']]  
 
 # Padronizar os dados
 X_scaled = StandardScaler().fit_transform(X)
@@ -698,6 +741,12 @@ plt.show()
 for i, (v, c) in enumerate(zip(exp_var, cum_var), 1):
     print(f'PC{i}: {v:.4f} ({c:.2%} acumulado)')
 
+print('---'*100)
+print('Quanto cada variável pesa em cada componente principal:')
+print('| Acurácia | Especificidade | Similaridade | Prop x | Prop y |')
+print(pca.components_)
+print('---'*100)
+
 #    Fazendo ANOVA com PCA
 df_protA['PC1'] = X_pca[:, 0]  # Projeção no primeiro componente principal
 
@@ -723,12 +772,11 @@ plt.legend(title='Grupo')
 plt.show()"""
 
 #%% -------------------- ANOVA depois de fazer LDA --------------------
-# Recriando a versão equivalente do seu código, agora para o Canonical Discriminant Analysis (CDA / LDA)
 from sklearn.preprocessing import StandardScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 # Selecionar variáveis contínuas
-X = df_protA[['Desempenho','Acuracia', 'Especificidade', 'Similaridade', 'Proporção espacial x', 'Proporção espacial y']]
+X = df_protA[['Acuracia', 'Especificidade', 'Similaridade', 'Proporção espacial x', 'Proporção espacial y']]
 y = df_protA['grupo']
 
 # Padronizar os dados
@@ -777,6 +825,88 @@ plt.xlabel('Complexidade')
 plt.ylabel('LD1')
 plt.legend(title='Grupo')
 plt.show()
+
+#%% ------------------- Teste não paramétrico de Kruskal-Wallis -------------------
+from scipy.stats import kruskal
+import scikit_posthocs as sp
+
+# Entre grupos
+
+print('---'*100)
+print('Teste de Kruskal-Wallis para Grupos') 
+stat, p_value = kruskal(*[group['Desempenho'].values for name, group in df_protA.groupby('grupo')])
+print(f'Estatística de Kruskal-Wallis: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas entre os grupos (grupo) no desempenho.") 
+else:
+    print("Não há diferenças significativas entre os grupos (grupo) no desempenho.")
+
+posthoc = sp.posthoc_dunn(df_protA, val_col='Desempenho', group_col='grupo', p_adjust='bonferroni')
+print(posthoc)
+
+df_protA.boxplot(column='Desempenho', by='grupo', grid=False, notch=True)
+
+# Entre Complexidades
+print('---'*100)
+print('Teste de Kruskal-Wallis para Complexidade')
+stat, p_value = kruskal(*[group['Desempenho'].values for name, group in df_protA.groupby('Complexidade')])
+print(f'Estatística de Kruskal-Wallis: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas entre os grupos (Complexidade) no desempenho.") 
+else:
+    print("Não há diferenças significativas entre os grupos (Complexidade) no desempenho.")
+
+posthoc = sp.posthoc_dunn(df_protA, val_col='Desempenho', group_col='Complexidade', p_adjust='bonferroni')
+print(posthoc)
+
+df_protA.boxplot(column='Desempenho', by='Complexidade', grid=False, notch=True)
+
+#para Overlap
+print('---'*100)
+print('Teste de Kruskal-Wallis para Overlap')
+stat, p_value = kruskal(*[group['Desempenho'].values for name, group in df_protA.groupby('Overlap')])
+print(f'Estatística de Kruskal-Wallis: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas entre os grupos (Overlap) no desempenho.")
+else:
+    print("Não há diferenças significativas entre os grupos (Overlap) no desempenho.")
+posthoc = sp.posthoc_dunn(df_protA, val_col='Desempenho', group_col='Overlap', p_adjust='bonferroni')
+print(posthoc)
+
+#%% Teste de hipótese não paramétrico de Friedman
+from scipy.stats import friedmanchisquare
+import scikit_posthocs as sp
+# Agrupar os dados por ID e calcular a média do desempenho para cada grupo
+#df_friedman = df_protA.groupby(['Overlap', 'Complexidade','grupo'])['Desempenho'].mean().unstack().unstack()
+#df_friedman = df_protA.groupby(['Overlap', 'Complexidade','grupo'])['Desempenho'].mean().unstack('grupo').unstack('Overlap')
+df_friedman = df_protA.groupby(['ID','Overlap', 'Complexidade'])['Desempenho'].mean().unstack('Complexidade').unstack('Overlap')
+"""print(df_friedman.head())
+df_friedman = df_friedman.dropna()  # Remover linhas com valores NaN
+print(df_friedman.head())"""
+# Realizar o teste de Friedman
+stat, p_value = friedmanchisquare(*[df_friedman[col] for col in df_friedman.columns])
+print(f'Estatística de Friedman: {stat}, p-valor: {p_value}')
+if p_value < 0.05:
+    print("Há diferenças significativas no desempenho.")
+
+    #Post-hoc de Nemenyi
+
+    #passando os dados para o formato correto
+    df_friedman .columns = [f'C{cx}|O{ov}' for cx, ov in df_friedman.columns]
+    df_friedman.reset_index('ID').melt(id_vars='ID', var_name='Condicao', value_name='Desempenho')
+    #fazendo o post-hoc
+    posthoc = sp.posthoc_nemenyi_friedman(df_friedman)
+    #print(posthoc)
+
+    sns.heatmap(posthoc, annot=True, fmt=".3f", 
+    cmap="Reds", cbar_kws={"label": "p-valor"}, center=0.05)
+    plt.title("Post-hoc de Nemenyi (p-valores)")
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não há diferenças significativas no desempenho.")
 
 # %% Salvando em .mat para mandar para o Jean   
 
