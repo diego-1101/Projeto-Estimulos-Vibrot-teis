@@ -657,6 +657,10 @@ resultado = mc.tukeyhsd()
 print(resultado.summary())
 
 #%% -------------------- ANOVA sem agrupar (com todo o desempenho) --------------------
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from statsmodels.stats.multicomp import MultiComparison
+
 df_concat_protA_cv['grupo'] = 'CV'
 df_concat_protA_sv['grupo'] = 'SV'
 df_protA = pd.concat([df_concat_protA_cv, df_concat_protA_sv], axis=0, ignore_index=True)
@@ -664,14 +668,235 @@ df_protA['grupo'] = df_protA['grupo'].astype('category')
 
 df_protA['Especificidade'] = 1 - df_protA['Taxa de Falsos Positivos']
 
+df_protA['grupo_complexidade'] = df_protA['grupo'].astype(str) + '_C' + df_protA['Complexidade'].astype(str)
+df_protA['grupo_overlap'] = df_protA['grupo'].astype(str) + '_O' + df_protA['Overlap'].astype(str)
+df_protA['grupo_complexidade_overlap'] = df_protA['grupo'].astype(str) + '_C' + df_protA['Complexidade'].astype(str) + '_O' + df_protA['Overlap'].astype(str)
+
 modelo = ols('Desempenho ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
-anova = sm.stats.anova_lm(modelo, typ=2)
+anova = sm.stats.anova_lm(modelo, typ=3)
 print("Resultados da ANOVA sem agrupar:")
 print(anova)
-
-mc = MultiComparison(df_protA['Desempenho'], df_protA['Complexidade'])
+print('---'*100)
+mc = MultiComparison(df_protA['Desempenho'], df_protA['grupo_complexidade'])
 resultado = mc.tukeyhsd()
 print(resultado.summary())
+
+#%% Dot plot com intervalo de confiança
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import t
+import numpy as np
+
+plt.figure(figsize=(20, 10))
+
+# Dotplot com dispersão
+sns.stripplot(data=df_protA, x='grupo_complexidade_overlap', y='Desempenho', jitter=True, color='gray', alpha=0.5)
+
+# Calcular média e intervalo de confiança 95%
+group_stats = df_protA.groupby('grupo_complexidade_overlap')['Desempenho'].agg(['mean', 'std', 'count']).reset_index()
+group_stats['sem'] = group_stats['std'] / np.sqrt(group_stats['count'])  # Erro padrão
+group_stats['t_crit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))  # t crítico
+group_stats['ci95'] = group_stats['t_crit'] * group_stats['sem']  # Intervalo de confiança
+
+# Plotar barras de erro e escrever os valores
+for i, row in group_stats.iterrows():
+    media = row['mean']
+    ci = row['ci95']
+
+    # Adiciona barra de erro com IC
+    plt.errorbar(x=i, y=media, yerr=ci,
+                 fmt='o', color='blue', capsize=5, markersize=8,
+                 label='Média ± IC95%' if i == 0 else "")
+
+    # Escreve os valores numéricos no gráfico
+    plt.text(i, media + ci + 0.02, f"Média: {media:.2f}\nIC95: ±{ci:.2f}",
+             ha='center', va='bottom', fontsize=9, color='black')
+
+# Estética
+plt.title('Dotplot com Média e Intervalo de Confiança 95% por grupo_complexidade_overlap')
+plt.ylabel('Desempenho')
+plt.xlabel('grupo_complexidade_overlap')
+plt.ylim(0,1.1)
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+#%% Dot plot intervalo de confiança + quais são as diferenças significativas
+# --- Imports ---
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import t
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+
+# =========================
+# Configs principais (AQUI VOCÊ pode ajustar o alfa e o estilo das anotações)
+ALPHA = 0.05              # nível de significância
+SHOW_P_TEXT = False       # False = usa estrelas; True = escreve p exato
+STAR_THRESH = [(0.001,'***'), (0.01,'**'), (0.05,'*')]
+Y_PAD = 0.02              # espaço vertical acima do topo para começar as chaves
+STEP = 0.03               # quanto subir a cada chave empilhada
+CAP_WIDTH = 0.08          # largura das “orelhas” das chaves
+LINE_W = 1.5
+
+# =========================
+# 1) Dotplot + média ± IC95%
+plt.figure(figsize=(20, 10))
+ax = plt.gca()
+
+# Ordem dos grupos (AQUI VOCÊ pode definir uma ordem; se não definir, usa a ordem alfabética)
+order = sorted(df_protA['grupo_complexidade'].unique())
+sns.stripplot(data=df_protA, x='grupo_complexidade', y='Desempenho',
+              order=order, jitter=True, color='gray', alpha=0.5, ax=ax)
+
+# Estatísticas por grupo para IC95%
+group_stats = (df_protA
+               .groupby('grupo_complexidade')['Desempenho']
+               .agg(['mean','std','count'])
+               .reindex(order)
+               .reset_index())
+group_stats['sem']   = group_stats['std'] / np.sqrt(group_stats['count'])
+group_stats['tcrit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))
+group_stats['ci95']  = group_stats['tcrit'] * group_stats['sem']
+
+# Plotar média ± IC95% e rótulos
+for i, row in group_stats.iterrows():
+    m, ci = row['mean'], row['ci95']
+    ax.errorbar(i, m, yerr=ci, fmt='o', color='blue', capsize=5, markersize=8,
+                label='Média ± IC95%' if i == 0 else "")
+    ax.text(i, m + ci + 0.01, f"Média: {m:.2f}\nIC95: ±{ci:.2f}",
+            ha='center', va='bottom', fontsize=9, color='black')
+
+# Guardar o “topo” de cada coluna (para posicionar as chaves)
+tops = (group_stats['mean'] + group_stats['ci95']).values
+x_pos = {g:i for i, g in enumerate(order)}
+
+# =========================
+# 2) Pós-hoc automático (AQUI VOCÊ NÃO PRECISA COLOCAR PARES NA MÃO)
+tukey = pairwise_tukeyhsd(endog=df_protA['Desempenho'].values,
+                          groups=df_protA['grupo_complexidade'].values,
+                          alpha=ALPHA)
+
+# --- BLOCO CORRIGIDO: construir DataFrame do Tukey de forma robusta ---
+res = tukey.summary()  # tabela “oficial” do statsmodels
+tukey_df = pd.DataFrame(res.data[1:], columns=res.data[0])
+
+# Normalizar tipos (pode vir como string em algumas versões)
+tukey_df['p_adj']  = pd.to_numeric(tukey_df['p-adj'], errors='coerce')
+tukey_df['reject'] = tukey_df['reject'].astype(str).str.lower().map({'true': True, 'false': False})
+
+# Filtrar apenas pares significativos
+sig_pairs = tukey_df[tukey_df['reject']].copy()
+
+# =========================
+# 3) Funções auxiliares para desenhar chaves/asteriscos
+def p_to_text(p):
+    if SHOW_P_TEXT:
+        return f"p={p:.3g}"
+    for thr, star in STAR_THRESH:
+        if p < thr: 
+            return star
+    return 'ns'
+
+def draw_sig_bracket(ax, x1, x2, y, text, cap=CAP_WIDTH, lw=LINE_W):
+    """Desenha uma chave de significância entre x1 e x2 na altura y."""
+    ax.plot([x1, x1, x2, x2], [y, y+STEP*0.25, y+STEP*0.25, y], color='k', lw=lw)
+    # “orelhas” da chave
+    ax.plot([x1, x1-cap], [y, y], color='k', lw=lw)
+    ax.plot([x2, x2+cap], [y, y], color='k', lw=lw)
+    ax.text((x1+x2)/2, y + STEP*0.28, text, ha='center', va='bottom', fontsize=12)
+
+# =========================
+# 4) Empilhar automaticamente as chaves sem sobrepor
+# Base vertical inicial é o maior topo + uma folguinha
+y_base = tops.max() + Y_PAD
+levels = []  # guarda intervalos ocupados em cada “andar”
+
+def get_free_level(a, b):
+    """Escolhe o primeiro nível vertical sem conflito entre a e b (em coordenada x)."""
+    for lvl, intervals in enumerate(levels):
+        # se houver conflito com algum intervalo já ocupado neste nível, tenta o próximo
+        if any(not (b <= ia or a >= ib) for ia, ib in intervals):
+            continue
+        intervals.append((a, b))
+        return lvl
+    # se não encontrou nível existente, cria um novo
+    levels.append([(a, b)])
+    return len(levels)-1
+
+# Mapear posições no eixo x e ordenar pares por “largura”
+sig_pairs['x1'] = sig_pairs['group1'].map(x_pos)
+sig_pairs['x2'] = sig_pairs['group2'].map(x_pos)
+sig_pairs[['xa','xb']] = np.sort(sig_pairs[['x1','x2']].values, axis=1)
+sig_pairs = sig_pairs.sort_values(by=['xb','xa'])
+
+# Desenhar chaves
+for _, r in sig_pairs.iterrows():
+    xa, xb = int(r['xa']), int(r['xb'])
+    local_top = max(tops[xa], tops[xb]) + Y_PAD  # mínimo acima dos dois grupos
+    lvl = get_free_level(xa, xb)
+    y = max(y_base + lvl*STEP, local_top + lvl*STEP*0.6)
+    label = p_to_text(r['p_adj'])
+    draw_sig_bracket(ax, xa, xb, y, label)
+
+# =========================
+# 5) Estética final
+ax.set_title('Dotplot com Média, IC95% e anotações de significância (Tukey HSD)')
+ax.set_ylabel('Desempenho')
+ax.set_xlabel('grupo_complexidade')
+ax.set_ylim(0, 1.1)  # AQUI VOCÊ pode ajustar conforme sua escala
+ax.legend()
+ax.grid(True, linestyle='--', alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+#%% Barplot
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import t
+import numpy as np
+
+# Calcular estatísticas de grupo
+group_stats = df_protA.groupby('grupo_overlap')['Desempenho'].agg(['mean', 'std', 'count']).reset_index()
+group_stats['sem'] = group_stats['std'] / np.sqrt(group_stats['count'])  # Erro padrão
+group_stats['t_crit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))  # t crítico para IC95%
+group_stats['ci95'] = group_stats['t_crit'] * group_stats['sem']  # Intervalo de confiança
+
+# Renomear colunas para facilitar o uso no barplot
+group_stats.rename(columns={'mean': 'Desempenho'}, inplace=True)
+
+# Plot
+plt.figure(figsize=(8, 6))
+sns.barplot(
+    data=group_stats,
+    x='grupo_overlap',
+    y='Desempenho',
+    yerr=group_stats['ci95'],
+    capsize=0.2,
+    color='skyblue',
+    edgecolor='black'
+)
+
+# Adicionar texto com os valores
+for i, row in group_stats.iterrows():
+    media = row['Desempenho']
+    ci = row['ci95']
+    plt.text(i, media + ci + 0.01, f"Média: {media:.2f}\nIC95: ±{ci:.2f}",
+             ha='center', va='bottom', fontsize=8, color='black')
+
+# Estética
+plt.title('Barplot com Média e Intervalo de Confiança 95% por grupo_overlap')
+plt.ylabel('Desempenho')
+plt.xlabel('grupo_overlap')
+plt.xticks(rotation=90)
+plt.ylim(0, 1.1)
+plt.grid(True, linestyle='--', alpha=0.3)
+plt.tight_layout()
+plt.show()
 
 #%% #Boxplots
 # Boxplots do desempenho sem agrupar
@@ -703,7 +928,8 @@ plt.legend(title='Complexidade')
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-X = df_protA[['Acuracia','Especificidade','Similaridade','Proporção espacial x','Proporção espacial y']]  
+X = df_protA[['Acuracia','Especificidade','Similaridade','Proporção espacial x',
+              'Proporção espacial y']]  
 
 # Padronizar os dados
 X_scaled = StandardScaler().fit_transform(X)
@@ -749,12 +975,46 @@ print('---'*100)
 
 #    Fazendo ANOVA com PCA
 df_protA['PC1'] = X_pca[:, 0]  # Projeção no primeiro componente principal
+df_protA['PC2'] = X_pca[:, 1]  # Projeção no primeiro componente principal
+df_protA['PC3'] = X_pca[:, 2]  # Projeção no primeiro componente principal
 
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=df_protA, x='PC1', y='PC2', hue='grupo_complexidade_overlap', palette='tab10')
+plt.title('PCA - Cluster por grupo_complexidade_overlap')
+plt.xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% da variação)')
+plt.ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% da variação)')
+plt.legend(bbox_to_anchor=(1, 1))
+plt.tight_layout()
+plt.show()
+
+# 4. Plot 3D
+fig = plt.figure(figsize=(12, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+# Escolha uma paleta de cores
+palette = sns.color_palette('tab10', n_colors=df_protA['grupo_complexidade_overlap'].nunique())
+group_colors = dict(zip(df_protA['grupo_complexidade_overlap'].unique(), palette))
+
+# Plote os pontos
+for grupo, dados in df_protA.groupby('grupo_complexidade_overlap'):
+    ax.scatter(dados['PC1'], dados['PC2'], dados['PC3'],
+               label=grupo, color=group_colors[grupo], s=40, alpha=0.8)
+
+# Estética
+ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+ax.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)")
+ax.set_title("PCA 3D - Clusters por grupo_complexidade_overlap")
+ax.legend(bbox_to_anchor=(1.1, 1.05))
+plt.tight_layout()
+plt.show()
+
+"""
 modelo = ols('PC1 ~ grupo * Complexidade * Overlap', data=df_protA).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)
 print(anova)
 
-"""mc = MultiComparison(df_protA['PC1'], df_protA['Overlap'])
+mc = MultiComparison(df_protA['PC1'], df_protA['Overlap'])
 resultado = mc.tukeyhsd()
 #print(resultado)
 
@@ -810,9 +1070,10 @@ coef_ld1 = pd.DataFrame({'Variável': X.columns, 'Coeficiente_LD1': lda.coef_[0]
 print("Coeficientes da LD1:")
 print(coef_ld1)
 
+#%%
 #    Fazendo ANOVA com LDA
 
-modelo = ols('LD1 ~ grupo * Complexidade * Overlap', data=df_protA).fit()
+modelo = ols('LD1 ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)
 print(anova)
 

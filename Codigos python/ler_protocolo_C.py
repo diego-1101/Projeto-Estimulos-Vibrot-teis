@@ -89,10 +89,10 @@ def transformar_protC_mat_em_df(protocolo, id=['08', '11', '14', '20', '22', '30
 id = ['08', '11', '14', '20', '22', '30', '35', '41', '44']
 
 # Carregar o arquivo .mat do protocolo 
-C = loadmat('Aquivos mat\ProtC.mat')
+prot_C = loadmat('Aquivos mat\ProtC.mat')
 
 # Acessar o conteúdo de ProtC
-ProtC = C['ProtC']  
+ProtC = prot_C['ProtC']  
 
 # Convertendo para um DataFrame
 protC_df = transformar_protC_mat_em_df(protocolo = ProtC, id = id)
@@ -231,6 +231,7 @@ df_concat_protC['Fase'] = df_concat_protC['Fase'].astype(str)
 df_concat_protC['Número da Trajetória'] = df_concat_protC['Número da Trajetória'].astype(int)
 
 df = df_concat_protC[df_concat_protC['Fase']== 'Fase Execucao'].copy()
+df['Complexidade'] = df['Complexidade'].astype('category')
 
 # %% Distribuição do desempenho da fase de execução do Protocolo C 
 
@@ -269,6 +270,220 @@ plt.yticks(np.arange(0, 1.5, 0.1), fontsize=10)
 plt.xlabel('Complexidade')
 plt.ylabel('Desempenho')
 plt.show()
+#%% Dot Plot com Intervalo de Confiança
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import t
+import numpy as np
+
+plt.figure(figsize=(10, 8))
+
+# Dotplot com dispersão
+sns.stripplot(data=df, x='Complexidade', y='Desempenho', jitter=True, color='gray', alpha=0.5)
+
+# Calcular média e intervalo de confiança 95%
+group_stats = df.groupby('Complexidade')['Desempenho'].agg(['mean', 'std', 'count']).reset_index()
+group_stats['sem'] = group_stats['std'] / np.sqrt(group_stats['count'])  # Erro padrão
+group_stats['t_crit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))  # t crítico
+group_stats['ci95'] = group_stats['t_crit'] * group_stats['sem']  # Intervalo de confiança
+
+# Plotar barras de erro e escrever os valores
+for i, row in group_stats.iterrows():
+    media = row['mean']
+    ci = row['ci95']
+
+    # Adiciona barra de erro com IC
+    plt.errorbar(x=i, y=media, yerr=ci,
+                 fmt='o', color='blue', capsize=5, markersize=8,
+                 label='Média ± IC95%' if i == 0 else "")
+
+    # Escreve os valores numéricos no gráfico
+    plt.text(i, media + ci + 0.02, f"Média: {media:.2f}\nIC95: ±{ci:.2f}",
+             ha='center', va='bottom', fontsize=9, color='black')
+
+# Estética
+plt.title('Dotplot com Média e Intervalo de Confiança 95% por Complexidade')
+plt.ylabel('Desempenho')
+plt.xlabel('Complexidade')
+plt.ylim(0,1.1)
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+#%% Dot plot intervalo de confiança + quais são as diferenças significativas
+# --- Imports ---
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import t
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+
+# =========================
+# Configs principais (AQUI VOCÊ pode ajustar o alfa e o estilo das anotações)
+ALPHA = 0.05              # nível de significância
+SHOW_P_TEXT = False       # False = usa estrelas; True = escreve p exato
+STAR_THRESH = [(0.001,'***'), (0.01,'**'), (0.05,'*')]
+Y_PAD = 0.02              # espaço vertical acima do topo para começar as chaves
+STEP = 0.03               # quanto subir a cada chave empilhada
+CAP_WIDTH = 0.08          # largura das “orelhas” das chaves
+LINE_W = 1.5
+
+# =========================
+# 1) Dotplot + média ± IC95%
+plt.figure(figsize=(8, 6))
+ax = plt.gca()
+
+# Ordem dos grupos (AQUI VOCÊ pode definir uma ordem; se não definir, usa a ordem alfabética)
+order = sorted(df['Complexidade'].unique())
+sns.stripplot(data=df, x='Complexidade', y='Desempenho',
+              order=order, jitter=True, color='gray', alpha=0.5, ax=ax)
+
+# Estatísticas por grupo para IC95%
+group_stats = (df
+               .groupby('Complexidade')['Desempenho']
+               .agg(['mean','std','count'])
+               .reindex(order)
+               .reset_index())
+group_stats['sem']   = group_stats['std'] / np.sqrt(group_stats['count'])
+group_stats['tcrit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))
+group_stats['ci95']  = group_stats['tcrit'] * group_stats['sem']
+
+# Plotar média ± IC95% e rótulos
+for i, row in group_stats.iterrows():
+    m, ci = row['mean'], row['ci95']
+    ax.errorbar(i, m, yerr=ci, fmt='o', color='blue', capsize=5, markersize=8,
+                label='Média ± IC95%' if i == 0 else "")
+    ax.text(i, m + ci + 0.01, f"Média: {m:.2f}\nIC95: ±{ci:.2f}",
+            ha='center', va='bottom', fontsize=9, color='black')
+
+# Guardar o “topo” de cada coluna (para posicionar as chaves)
+tops = (group_stats['mean'] + group_stats['ci95']).values
+x_pos = {g:i for i, g in enumerate(order)}
+
+# =========================
+# 2) Pós-hoc automático (AQUI VOCÊ NÃO PRECISA COLOCAR PARES NA MÃO)
+tukey = pairwise_tukeyhsd(endog=df['Desempenho'].values,
+                          groups=df['Complexidade'].values,
+                          alpha=ALPHA)
+
+# --- BLOCO CORRIGIDO: construir DataFrame do Tukey de forma robusta ---
+res = tukey.summary()  # tabela “oficial” do statsmodels
+tukey_df = pd.DataFrame(res.data[1:], columns=res.data[0])
+
+# Normalizar tipos (pode vir como string em algumas versões)
+tukey_df['p_adj']  = pd.to_numeric(tukey_df['p-adj'], errors='coerce')
+tukey_df['reject'] = tukey_df['reject'].astype(str).str.lower().map({'true': True, 'false': False})
+
+# Filtrar apenas pares significativos
+sig_pairs = tukey_df[tukey_df['reject']].copy()
+
+# =========================
+# 3) Funções auxiliares para desenhar chaves/asteriscos
+def p_to_text(p):
+    if SHOW_P_TEXT:
+        return f"p={p:.3g}"
+    for thr, star in STAR_THRESH:
+        if p < thr: 
+            return star
+    return 'ns'
+
+def draw_sig_bracket(ax, x1, x2, y, text, cap=CAP_WIDTH, lw=LINE_W):
+    """Desenha uma chave de significância entre x1 e x2 na altura y."""
+    ax.plot([x1, x1, x2, x2], [y, y+STEP*0.25, y+STEP*0.25, y], color='k', lw=lw)
+    # “orelhas” da chave
+    ax.plot([x1, x1-cap], [y, y], color='k', lw=lw)
+    ax.plot([x2, x2+cap], [y, y], color='k', lw=lw)
+    ax.text((x1+x2)/2, y + STEP*0.28, text, ha='center', va='bottom', fontsize=12)
+
+# =========================
+# 4) Empilhar automaticamente as chaves sem sobrepor
+# Base vertical inicial é o maior topo + uma folguinha
+y_base = tops.max() + Y_PAD
+levels = []  # guarda intervalos ocupados em cada “andar”
+
+def get_free_level(a, b):
+    """Escolhe o primeiro nível vertical sem conflito entre a e b (em coordenada x)."""
+    for lvl, intervals in enumerate(levels):
+        # se houver conflito com algum intervalo já ocupado neste nível, tenta o próximo
+        if any(not (b <= ia or a >= ib) for ia, ib in intervals):
+            continue
+        intervals.append((a, b))
+        return lvl
+    # se não encontrou nível existente, cria um novo
+    levels.append([(a, b)])
+    return len(levels)-1
+
+# Mapear posições no eixo x e ordenar pares por “largura”
+sig_pairs['x1'] = sig_pairs['group1'].map(x_pos)
+sig_pairs['x2'] = sig_pairs['group2'].map(x_pos)
+sig_pairs[['xa','xb']] = np.sort(sig_pairs[['x1','x2']].values, axis=1)
+sig_pairs = sig_pairs.sort_values(by=['xb','xa'])
+
+# Desenhar chaves
+for _, r in sig_pairs.iterrows():
+    xa, xb = int(r['xa']), int(r['xb'])
+    local_top = max(tops[xa], tops[xb]) + Y_PAD  # mínimo acima dos dois grupos
+    lvl = get_free_level(xa, xb)
+    y = max(y_base + lvl*STEP, local_top + lvl*STEP*0.6)
+    label = p_to_text(r['p_adj'])
+    draw_sig_bracket(ax, xa, xb, y, label)
+
+# =========================
+# 5) Estética final
+ax.set_title('Dotplot com Média, IC95% e anotações de significância (Tukey HSD)')
+ax.set_ylabel('Desempenho')
+ax.set_xlabel('Complexidade')
+ax.set_ylim(0, 1.1)  # AQUI VOCÊ pode ajustar conforme sua escala
+ax.legend()
+ax.grid(True, linestyle='--', alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+#%% Bar plot com intervalo de confiança
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import t
+import numpy as np
+
+# Calcular estatísticas de grupo
+group_stats = df.groupby('Complexidade')['Desempenho'].agg(['mean', 'std', 'count']).reset_index()
+group_stats['sem'] = group_stats['std'] / np.sqrt(group_stats['count'])  # Erro padrão
+group_stats['t_crit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))  # t crítico para IC95%
+group_stats['ci95'] = group_stats['t_crit'] * group_stats['sem']  # Intervalo de confiança
+
+# Renomear colunas para facilitar o uso no barplot
+group_stats.rename(columns={'mean': 'Desempenho'}, inplace=True)
+
+# Plot
+plt.figure(figsize=(8, 6))
+sns.barplot(
+    data=group_stats,
+    x='Complexidade',
+    y='Desempenho',
+    yerr=group_stats['ci95'],
+    capsize=0.2,
+    color='skyblue',
+    edgecolor='black'
+)
+
+# Adicionar texto com os valores
+for i, row in group_stats.iterrows():
+    media = row['Desempenho']
+    ci = row['ci95']
+    plt.text(i, media + ci + 0.01, f"Média: {media:.2f}\nIC95: ±{ci:.2f}",
+             ha='center', va='bottom', fontsize=8, color='black')
+
+# Estética
+plt.title('Barplot com Média e Intervalo de Confiança 95% por Complexidade')
+plt.ylabel('Desempenho')
+plt.xlabel('Complexidade')
+plt.xticks(rotation=90)
+plt.ylim(0, 1.1)
+plt.grid(True, linestyle='--', alpha=0.3)
+plt.tight_layout()
+plt.show()
 
 #%% --------------------------------------- Teste de hipótese por ANOVA ---------------------------------------
 
@@ -278,7 +493,7 @@ from statsmodels.stats.multicomp import MultiComparison
 from statsmodels.stats.libqsturng import psturng  # usado internamente
 
 # Assumindo que 'desempenho' é contínua, e grupo, complexidade e overlap são fatores:
-modelo = ols('Desempenho ~ Complexidade', data=df).fit()
+modelo = ols('Desempenho ~ C(Complexidade)', data=df).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)  
 print("Resultados da ANOVA:")
 print(anova)
@@ -341,7 +556,44 @@ print('---'*100)
 
 #    Fazendo ANOVA com PCA
 df['PC1'] = X_pca[:, 0]  # Usando o primeiro componente principal
-modelo = ols('PC1 ~ Complexidade', data=df).fit()
+
+#    Fazendo ANOVA com PCA
+df['PC1'] = X_pca[:, 0]  # Projeção no primeiro componente principal
+df['PC2'] = X_pca[:, 1]  # Projeção no primeiro componente principal
+df['PC3'] = X_pca[:, 2]  # Projeção no primeiro componente principal
+
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=df, x='PC1', y='PC2', hue='Complexidade', palette='tab10')
+plt.title('PCA - Cluster por Complexidade')
+plt.xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% da variação)')
+plt.ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% da variação)')
+plt.legend(bbox_to_anchor=(1, 1))
+plt.tight_layout()
+plt.show()
+
+# 4. Plot 3D
+fig = plt.figure(figsize=(12, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+# Escolha uma paleta de cores
+palette = sns.color_palette('tab10', n_colors=df['Complexidade'].nunique())
+group_colors = dict(zip(df['Complexidade'].unique(), palette))
+
+# Plote os pontos
+for grupo, dados in df.groupby('Complexidade'):
+    ax.scatter(dados['PC1'], dados['PC2'], dados['PC3'],
+               label=grupo, color=group_colors[grupo], s=40, alpha=0.8)
+
+# Estética
+ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+ax.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)")
+ax.set_title("PCA 3D - Clusters por Complexidade")
+ax.legend(bbox_to_anchor=(1.1, 1.05))
+plt.tight_layout()
+plt.show()
+
+"""modelo = ols('PC1 ~ Complexidade', data=df).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)
 print(anova)
 
@@ -361,7 +613,7 @@ plt.title('Boxplot com Notch por Complexidade')
 plt.suptitle('')
 plt.xlabel('Complexidade')
 plt.ylabel('PC1')
-plt.show()
+plt.show()"""
 
 
 #%% -------------------- LDA + ANOVA --------------------
@@ -403,7 +655,7 @@ print("Coeficientes da LD1:")
 print(coef_ld1)
 
 #    Fazendo ANOVA com LDA
-modelo = ols('LD1 ~ Complexidade', data=df).fit()
+modelo = ols('LD1 ~ C(Complexidade)', data=df).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)
 print(anova)
 # Comparar as médias de desempenho entre as complexidade:
