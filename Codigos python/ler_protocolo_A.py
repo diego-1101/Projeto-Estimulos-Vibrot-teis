@@ -457,11 +457,19 @@ df_protA['grupo'] = df_protA['grupo'].astype('category')
 
 df_protA['Especificidade'] = 1 - df_protA['Taxa de Falsos Positivos']
 
-df_protA['grupo_complexidade'] = df_protA['grupo'].astype(str) + '_C' + df_protA['Complexidade'].astype(str)
-df_protA['grupo_overlap'] = df_protA['grupo'].astype(str) + '_O' + df_protA['Overlap'].astype(str)
-df_protA['grupo_complexidade_overlap'] = df_protA['grupo'].astype(str) + '_C' + df_protA['Complexidade'].astype(str) + '_O' + df_protA['Overlap'].astype(str)
+df_protA['nivel'] = df_protA['Complexidade'].apply(ev.map_niveis)
+df_protA['velocidade'] = df_protA['Overlap'].apply(ev.map_overlap)
 
+# Colunas para agrupamento
+'''df_protA['grupo_complexidade1'] = df_protA['grupo'].astype(str) + '_C' + df_protA['Complexidade'].astype(str)
+df_protA['grupo_overlap1'] = df_protA['grupo'].astype(str) + '_O' + df_protA['Overlap'].astype(str)
+df_protA['grupo_complexidade_overlap1'] = df_protA['grupo'].astype(str) + '_C' + df_protA['Complexidade'].astype(str) + '_O' + df_protA['Overlap'].astype(str)'''
 
+df_protA['grupo_complexidade'] = df_protA['grupo'].astype(str) + '_' + df_protA['nivel'].astype(str)
+df_protA['grupo_overlap'] = df_protA['grupo'].astype(str) + '_' + df_protA['velocidade'].astype(str)
+df_protA['grupo_complexidade_overlap'] = df_protA['grupo'].astype(str) + '_' + df_protA['nivel'].astype(str) + '_' + df_protA['velocidade'].astype(str)
+
+# Salvando o Data Frame final em CSV
 df_protA.to_csv('df_protA.csv', index=False)
 
 '''#%%# Plotando os desempenhos médios caso queira
@@ -489,7 +497,7 @@ for tipo_desempenho in desempenho_A_sv.keys():
     
     #Plotando com a função de plotar desempenhos
     ev.plotar_desempenhos(data,titulo,parametro)
-    
+
 # Plotando os desempenhos de todo o protocolo A CV e SV
 
 print('---'*100)
@@ -518,3 +526,4 @@ for i in gabarito.columns:
 plotar.plotar_trajetoria(gabarito[i][0],individuo= f'Gabarito {i}')
 
 """'''
+# %%
