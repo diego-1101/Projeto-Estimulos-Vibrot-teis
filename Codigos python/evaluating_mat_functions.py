@@ -1,6 +1,7 @@
 '''
-Functions developed by Diego de Sá Dias to evaluate and give scores into 
-differents trajectories
+Functions developed by Diego de Sá Dias 
+
+!!!!! Write here when finished !!!! 
 '''
 
 #%%#---------------------------- Funções de avaliação de trajetória
@@ -307,7 +308,7 @@ def calcular_desempenho(acur, fpr, sim, propx, propy):
 
     return desempenho, desempenho_norm
 
-#%% Funções para teste de normalidade
+#%% Funções para teste de normalidade em cima dos dados agrupados
 def teste_normalidade_shapiro(df, titulo = '', alpha=0.05):
     """Realiza o teste de normalidade de Shapiro-Wilk para as colunas de desempenho médio e ponderado.
 
@@ -380,6 +381,31 @@ def teste_normalidade_kstest(df, titulo = '', alpha=0.05):
     else:
         return {'Media_Desempenho':[d1, p1,0], 'Media_Desempenho_Ponderado': [d2, p2,0]}
 
+#%% Funções que testam normalidade com shapiro e kstest com o desempenho inteiro
+
+def teste_normalidade_completo(desempenho, alpha=0.05):
+    """Realiza os testes de normalidade de Shapiro-Wilk e Kolmogorov-Smirnov para a coluna de desempenho.
+
+    Args:
+        desempenho (Pandas Column DataFrame, required): Coluna de Desempenho a ser avaliada.
+        titulo (str, optional): Título para o teste de normalidade, usado na impressão dos resultados. Defaults to ''.
+        alpha (float, optional): Nível de significância para o teste de normalidade. Defaults to 0.05.
+    Returns:
+        dict: Dicionário com os resultados do teste de normalidade para a coluna de desempenho.
+            1. 'Shapiro-Wilk': Lista com o valor W, o p-valor e se é ou não normal de acordo com alfa (0-> Não Normal, 1-> Normal) do teste de normalidade.
+            2. 'Kolmogorov-Smirnov': Lista com o valor D, o p-valor e se é ou não normal de acordo com alfa (0-> Não Normal, 1-> Normal) do teste de normalidade.
+    """
+
+    import pandas as pd
+    from scipy.stats import shapiro, kstest
+    w,p = shapiro(desempenho)
+    print(f'Estatística W: {w}, p-valor: {p}')
+    print(f"✅Normal (alpha={alpha}, p-value= {p})" if p > alpha else f"❌Não normal (alpha={alpha}, p-value= {p})")
+    d,p = kstest(desempenho, 'norm', args=(desempenho.mean(), desempenho.std()))
+    print(f'Estatística D: {d}, p-valor: {p}')
+    print(f"✅Normal (alpha={alpha}, p-value= {p})" if p > alpha else f"❌Não normal (alpha={alpha}, p-value= {p})")
+
+    return {'Shapiro-Wilk': [w,p, 1 if p>alpha else 0], 'Kolmogorov-Smirnov': [d,p, 1 if p>alpha else 0]}
 
 #%%#---------------------------- Funções auxiliares gerais ----------------------------
 
@@ -399,6 +425,40 @@ def map_complexidade(num_traj):
         return 6
     if num_traj in [7,8,9]:
         return 8
+
+def map_niveis(num_complexidade):
+    """
+    Mapeia o número da complexidade para um nível de complexidade.
+
+    Args:
+        num_complexidade (int): qual o número da complexidade
+
+    Returns:
+        (str): valor do nível daquela complexidade
+    """
+    if num_complexidade in [4]:
+        return 'Fácil'
+    if num_complexidade in [6]:
+        return 'Médio'
+    if num_complexidade in [8]:
+        return 'Difícil'    
+
+def map_overlap(num_overlap):
+    """
+    Mapeia o número do overlap para um nível de overlap.
+
+    Args:
+        num_overlap (float): qual o número do overlap
+
+    Returns:
+        (str): valor do nível daquele overlap
+    """
+    if num_overlap in [0.0]:
+        return 'Lento'
+    if num_overlap in [0.25]:
+        return 'Médio'
+    if num_overlap in [0.5]:
+        return 'Rápido'
     
 def calcular_desempenhos_medios(df_concat,ids=[],complexidades=[], overlaps= None, trajetorias = []):
 
@@ -556,3 +616,328 @@ def plotar_desempenhos(data,titulo,parametro):
     fig.suptitle(f'Visualização de {parametro} {titulo}')
     plt.tight_layout()
     plt.show()
+
+def dot_ic_sig(
+    df, x, y='Desempenho',
+    order=None,
+    alpha=0.05,
+    show_p_text=False,
+    star_thresh=((0.001,'***'), (0.01,'**'), (0.05,'*')),
+    figsize=(20,10),
+    jitter=True, dot_alpha=0.4, dot_color='gray',
+    annotate_means=True, text_offset=0.01,
+    y_pad=0.02, step=0.03, cap_width=0.08, line_w=1.5,
+    ylim=(0,1.1), title=None, grid=True, savepath=None,
+    seed=None):
+    """
+    Dotplot + média ± IC95% + chaves automáticas de significância (Tukey HSD).
+
+    Parâmetros principais:
+      df: DataFrame com ao menos as colunas [x, y]
+      x:  coluna categórica que define os grupos no eixo x
+      y:  coluna numérica do desfecho (default 'Desempenho')
+      order: ordem dos níveis em x (se None, usa ordem categórica ou sorted)
+      alpha: nível de significância para Tukey
+      show_p_text: True -> escreve p; False -> usa estrelas
+      star_thresh: tuplas (limiar, '***', '**', '*') para mapear p em estrelas
+      ylim: tupla para limites de y (None mantém automático)
+      title: título opcional
+      savepath: caminho para salvar a figura (png/svg/pdf), se desejado
+
+    Retorna:
+      fig, ax, tukey_df, sig_pairs, group_stats
+    """
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from scipy.stats import t
+    from statsmodels.stats.multicomp import pairwise_tukeyhsd
+    import pandas.api.types as ptypes
+
+    if seed is not None:
+        np.random.seed(seed)
+
+    data = df[[x, y]].dropna().copy()
+
+    # Determinar ordem dos grupos
+    if order is None:
+        if ptypes.is_categorical_dtype(data[x]):
+            order = list(data[x].cat.categories)
+        else:
+            order = sorted(data[x].unique().tolist())
+
+    # Funções auxiliares internas --------------------------
+    def _p_to_text(p):
+        if show_p_text:
+            return f"p={p:.3g}"
+        for thr, star in star_thresh:
+            if p < thr:
+                return star
+        return 'ns'
+
+    def _draw_sig_bracket(ax, x1, x2, y0, text):
+        ax.plot([x1, x1, x2, x2], [y0, y0+step*0.25, y0+step*0.25, y0], color='k', lw=line_w)
+        ax.plot([x1, x1-cap_width], [y0, y0], color='k', lw=line_w)
+        ax.plot([x2, x2+cap_width], [y0, y0], color='k', lw=line_w)
+        ax.text((x1+x2)/2, y0 + step*0.28, text, ha='center', va='bottom', fontsize=12)
+
+    # ------------------------------------------------------
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Dotplot (dispersão por grupo)
+    sns.stripplot(
+        data=data, x=x, y=y, order=order,
+        jitter=jitter, color=dot_color, alpha=dot_alpha, ax=ax
+    )
+
+    # Estatísticas por grupo: média ± IC95%
+    g = (data.groupby(x)[y]
+         .agg(mean='mean', std='std', count='count')
+         .reindex(order)
+         .reset_index())
+    # CI 95% com t de Student
+    def _ci95(std, n):
+        if n and n > 1 and pd.notnull(std):
+            sem = std / np.sqrt(n)
+            return t.ppf(0.975, df=n-1) * sem
+        return np.nan
+    g['ci95'] = [_ci95(s, n) for s, n in zip(g['std'], g['count'])]
+
+    # Plotar média ± IC e rótulos
+    for i, row in g.iterrows():
+        m, ci = row['mean'], row['ci95']
+        ax.errorbar(i, m, yerr=ci, fmt='o', color='blue', capsize=5, markersize=8,
+                    label='Média ± IC95%' if i == 0 else "")
+        if annotate_means:
+            off = text_offset if pd.notnull(ci) else text_offset*2
+            txt_ci = f"±{ci:.2f}" if pd.notnull(ci) else "n/a"
+            ax.text(i, (m + (ci if pd.notnull(ci) else 0)) + off,
+                    f"Média: {m:.2f}\nIC95: {txt_ci}",
+                    ha='center', va='bottom', fontsize=9, color='black')
+
+    # Topo de cada coluna para posicionar chaves
+    tops = (g['mean'] + g['ci95'].fillna(0)).values
+    x_pos = {lvl: i for i, lvl in enumerate(order)}
+
+    # Tukey HSD automático
+    tukey = pairwise_tukeyhsd(endog=data[y].values, groups=data[x].values, alpha=alpha)
+    res = tukey.summary()
+    tukey_df = pd.DataFrame(res.data[1:], columns=res.data[0])
+    tukey_df['p_adj']  = pd.to_numeric(tukey_df['p-adj'], errors='coerce')
+    tukey_df['reject'] = tukey_df['reject'].astype(str).str.lower().map({'true': True, 'false': False})
+
+    sig_pairs = tukey_df[tukey_df['reject']].copy()
+    if not sig_pairs.empty:
+        sig_pairs['x1'] = sig_pairs['group1'].map(x_pos)
+        sig_pairs['x2'] = sig_pairs['group2'].map(x_pos)
+        sig_pairs[['xa','xb']] = np.sort(sig_pairs[['x1','x2']].values, axis=1)
+        sig_pairs = sig_pairs.sort_values(by=['xb','xa'])
+
+        # Empilhar chaves sem sobreposição
+        y_base = tops.max() + y_pad
+        levels = []
+
+        def _get_free_level(a, b):
+            for lvl, intervals in enumerate(levels):
+                # conflito se (a,b) SOBREPOE qualquer (ia,ib)
+                if any(not (b <= ia or a >= ib) for ia, ib in intervals):
+                    continue
+                intervals.append((a, b))
+                return lvl
+            levels.append([(a, b)])
+            return len(levels)-1
+
+        for _, r in sig_pairs.iterrows():
+            xa, xb = int(r['xa']), int(r['xb'])
+            local_top = max(tops[xa], tops[xb]) + y_pad
+            lvl = _get_free_level(xa, xb)
+            y0 = max(y_base + lvl*step, local_top + lvl*step*0.6)
+            _draw_sig_bracket(ax, xa, xb, y0, _p_to_text(r['p_adj']))
+
+    # Estética final
+    ttl = title if title else f"Dotplot + IC95% + Tukey (α={alpha})"
+    ax.set_title(ttl)
+    ax.set_xlabel(x)
+    ax.set_ylabel(y)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    if grid:
+        ax.grid(True, linestyle='--', alpha=0.3)
+    ax.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    if savepath:
+        fig.savefig(savepath, dpi=300, bbox_inches='tight')
+
+    # Retornos úteis para relatório
+    group_stats = g.rename(columns={x: 'group'})
+    return fig, ax, tukey_df, sig_pairs, group_stats
+
+def bar_ic95(
+    df, x, y='Desempenho', hue=None,
+    order=None, hue_order=None,
+    palette=None,                 # dict {'CV':'#..', 'SV':'#..'} ou lista de cores
+    figsize=(10, 6),
+    bar_total_width=0.8,          # largura total ocupada pelo grupo no eixo x
+    edgecolor='black', alpha=1.0,
+    capsize=5, linewidth=1,
+    annotate=True, text_fmt="Média: {mean:.2f}\nIC95: ±{ci:.2f}", text_pad=0.01,
+    ylim=(0, 1.1), rotate_xticks=45,
+    title=None, xlabel=None, ylabel=None,
+    grid=True):
+    """
+    Barplot modular com IC95% (t-Student). Se 'hue' for informado, plota barras agrupadas
+    com uma cor por grupo.
+
+    Parâmetros
+    ----------
+    df : DataFrame
+    x  : str, coluna categórica para o eixo x
+    y  : str, coluna numérica (default 'Desempenho')
+    hue: str|None, segunda categoria para agrupar e colorir (ex.: 'grupo')
+    order, hue_order : listas com a ordem desejada das categorias
+    palette : dict|list|None, paleta para os níveis de 'hue'
+    bar_total_width : float, largura total ocupada por cada posição de x (<=1.0)
+    annotate : bool, escreve média e IC acima das barras
+    text_fmt : str, formato do texto; usa {mean} e {ci}
+    text_pad : float, espaço vertical adicional acima do topo da barra
+    ylim : tuple|None, limites do eixo y
+    title, xlabel, ylabel : str|None
+    grid : bool, liga grade pontilhada
+
+    Retorna
+    -------
+    fig, ax, stats : (matplotlib.figure.Figure, matplotlib.axes.Axes, DataFrame de estatísticas)
+    """
+
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from scipy.stats import t
+
+    data = df[[c for c in [x, y, hue] if c is not None]].dropna().copy()
+
+    # Definir ordem dos níveis
+    def _sorted_or_levels(s, given_order):
+        if given_order is not None:
+            return list(given_order)
+        if pd.api.types.is_categorical_dtype(s):
+            return list(s.cat.categories)
+        return sorted(s.unique().tolist())
+
+    x_levels = _sorted_or_levels(data[x], order)
+    if hue is not None:
+        h_levels = _sorted_or_levels(data[hue], hue_order)
+    else:
+        h_levels = [None]
+
+    # Agregar estatísticas por (x[, hue])
+    group_cols = [x] + ([hue] if hue is not None else [])
+    stats = (data
+             .groupby(group_cols, dropna=False)[y]
+             .agg(mean='mean', std='std', count='count')
+             .reset_index())
+
+    # Garantir presença de todas as combinações (para manter espaçamentos)
+    if hue is not None:
+        stats = (stats
+                 .set_index(group_cols)
+                 .reindex(pd.MultiIndex.from_product([x_levels, h_levels], names=group_cols))
+                 .reset_index())
+
+    # CI95% com t de Student (n>1)
+    def _ci95(std, n):
+        if (pd.notnull(std)) and (pd.notnull(n)) and (n > 1):
+            sem = std / np.sqrt(n)
+            return t.ppf(0.975, df=int(n)-1) * sem
+        return np.nan
+
+    stats['ci95'] = stats.apply(lambda r: _ci95(r['std'], r['count']), axis=1)
+
+    # Preparar cores
+    if hue is not None:
+        if palette is None:
+            palette = sns.color_palette(None, n_colors=len(h_levels))
+        if isinstance(palette, dict):
+            color_map = {lvl: palette.get(lvl, '#999999') for lvl in h_levels}
+        else:
+            # lista -> mapear por posição
+            color_map = {lvl: palette[i % len(palette)] for i, lvl in enumerate(h_levels)}
+    else:
+        # sem hue: uma única cor
+        color_map = {None: sns.color_palette(None, 1)[0]}
+
+    # Figura
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Geometria das barras
+    nx = len(x_levels)
+    nh = len(h_levels)
+    base_x = np.arange(nx)
+
+    if hue is None:
+        bw = bar_total_width
+        offsets = np.zeros(1)
+    else:
+        bw = bar_total_width / nh
+        # offsets centrados em torno do zero para ficar simétrico
+        start = -bar_total_width/2 + bw/2
+        offsets = np.array([start + i*bw for i in range(nh)])
+
+    # Plotar barras (com erro)
+    for i, xlvl in enumerate(x_levels):
+        for j, hlvl in enumerate(h_levels):
+            if hue is None:
+                row = stats.loc[(stats[x] == xlvl)]
+            else:
+                row = stats.loc[(stats[x] == xlvl) & (stats[hue] == hlvl)]
+
+            # Se a combinação não existe, pula (evita "Média: nan / IC95: ±nan")
+            if row.empty or pd.isna(row['mean'].iloc[0]):
+                continue
+
+            mean = float(row['mean'].iloc[0])
+            ci   = float(row['ci95'].iloc[0]) if pd.notnull(row['ci95'].iloc[0]) else np.nan
+
+            xpos = base_x[i] + (offsets[j] if hue is not None else 0.0)
+            ax.bar(xpos, mean, width=bw,
+                   color=color_map[hlvl], edgecolor=edgecolor,
+                   alpha=alpha, linewidth=linewidth)
+
+            if pd.notnull(ci):
+                ax.errorbar(xpos, mean, yerr=ci, fmt='none',
+                            ecolor='black', elinewidth=linewidth, capsize=capsize)
+
+            if annotate:
+                y_text = mean + (ci if pd.notnull(ci) else 0.0) + text_pad
+                txt = text_fmt.format(mean=mean, ci=(ci if pd.notnull(ci) else float('nan')))
+                ax.text(xpos, y_text, txt, ha='center', va='bottom', fontsize=8, color='black')
+
+    # Eixo x
+    ax.set_xticks(base_x)
+    ax.set_xticklabels(x_levels, rotation=rotate_xticks)
+    ax.set_xlim(-0.5, nx - 0.5)
+
+    # Legenda
+    if hue is not None:
+        handles = [plt.Line2D([0],[0], marker='s', color=color_map[hl], markersize=10,
+                               linewidth=0, label=str(hl), markerfacecolor=color_map[hl],
+                               markeredgecolor=edgecolor)
+                   for hl in h_levels]
+        ax.legend(handles=handles, title=hue)
+
+    # Estética
+    ax.set_title(title if title else f'Barplot com IC95% por {x}' + (f' (hue={hue})' if hue else ''))
+    ax.set_xlabel(xlabel if xlabel else x)
+    ax.set_ylabel(ylabel if ylabel else y)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    if grid:
+        ax.grid(True, linestyle='--', alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    return fig, ax, stats
