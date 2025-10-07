@@ -230,6 +230,9 @@ df_concat_protC['ID'] = df_concat_protC['ID'].astype(str)
 df_concat_protC['Fase'] = df_concat_protC['Fase'].astype(str)
 df_concat_protC['Número da Trajetória'] = df_concat_protC['Número da Trajetória'].astype(int)
 
+#Adicionando a interpretação de Nível de acordo com a Complexidade
+df_concat_protC['nivel'] = df_concat_protC['Complexidade'].apply(ev.map_niveis)
+
 df = df_concat_protC[df_concat_protC['Fase']== 'Fase Execucao'].copy()
 df['Complexidade'] = df['Complexidade'].astype('category')
 
