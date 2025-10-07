@@ -543,6 +543,256 @@ def calcular_desempenhos_medios(df_concat,ids=[],complexidades=[], overlaps= Non
 
     return desempenho
 
+def selecao_vetorial1(x1 = [], y1 = [], nomes_carac = [], k = 3, plotar = False, interativo = False):
+    
+    if k not in [2,3]:
+        raise ValueError('Só são permitidos valores de k em [2,3]')
+
+    import numpy as np 
+    from itertools import combinations
+    import pandas as pd
+    
+    classes = np.unique(y1)
+    mediaTotal = np.mean(x1,axis=0) # média total do vetor de características
+
+    #criando as matrizes de espalhamento
+    Sw = np.zeros((x1.shape[1], x1.shape[1])) # espalhamento intra-classes -> Inicia uma matriz (15, 15) com zeros 
+    Sb = np.zeros((x1.shape[1], x1.shape[1])) # espalhamento entre-classes
+
+    #Calculando Sw e Sb
+    for c in classes:
+        xc = x1[y1==c] #pegando os dados da classe c
+        media_classe = np.mean(xc,axis=0) #média da classe c
+
+        Sw += (xc-media_classe).T  @ (xc-media_classe) #espalhamento intra-classes -> dimensões= (15,amostras_classe) @ (amostras_classe,15) = (15,15)
+        n = xc.shape[0] #tamanho da classe c
+        diferenca = (media_classe - mediaTotal).reshape(-1,1) #diferença entre a média da classe e a média total -> eu fiz o reshape para que ela fique com dimensão (15,1)
+        Sb += n * (diferenca @ diferenca.T) #espalhamento entre-classes -> dimensões = (15,1) @ (1,15) = (15,15)
+
+    print('Sw shape:', Sw.shape)
+    print('Sb shape:', Sb.shape)
+    # Utilizando o critério de Fisher para selecionar as melhores características
+
+    # 3) Critério de seleção vetorial (Fisher ratio)
+    def fisher_ratio(Sw, Sb, features):
+        # Submatrizes para o subconjunto de features
+        Sw_f = Sw[np.ix_(features, features)]
+        Sb_f = Sb[np.ix_(features, features)]
+        # Razão de Fisher = trace(Sb) / trace(Sw)
+        return np.trace(Sb_f) / np.trace(Sw_f)
+    
+    p = x1.shape[1]   # número total de features
+    scores = []
+
+    for comb in combinations(range(p), k): # combinação das p características tomadas k a k 
+        J = fisher_ratio(Sw, Sb, comb)
+        scores.append((comb, J))
+
+    # Ordena pelo maior Fisher ratio
+    scores_sorted = sorted(scores, key=lambda t: t[1], reverse=True)
+
+    # Top 5 combinações
+    print("Top 5 combinações de características (índices) e seus Fisher ratios:")
+    for comb, J in scores_sorted[:5]:
+        print("Features:", comb, " -> J =", J)
+    
+    if plotar:
+        if k == 3:
+            #Indice melhores caracteristicas 
+            for i in range(0,5):
+                c1,c2,c3 = scores_sorted[i][0]
+                dados_melhores = x1[:,[c1,c2,c3]] #pego todas as linhas das colunas das melhores características
+                print(dados_melhores.shape)
+
+                #Plotando as 3 melhores características para distinguir entre os estados de sono
+                from mpl_toolkits.mplot3d import Axes3D
+                import matplotlib.pyplot as plt
+
+                fig = plt.figure(figsize=(18,15))
+                ax = fig.add_subplot(111, projection='3d')
+                for classe in np.unique(y1):
+                    ax.scatter(dados_melhores[y1==classe,0], dados_melhores[y1==classe,1], dados_melhores[y1== classe,2], label =classe) #ploto todos do estágio 1
+                
+                ax.set_xlabel(f'{nomes_carac[c1]}' if nomes_carac else f'Feature {c1+1}')
+                ax.set_ylabel(f'{nomes_carac[c2]}' if nomes_carac else f'Feature {c2+1}')
+                ax.set_zlabel(f'{nomes_carac[c3]}' if nomes_carac else f'Feature {c3+1}')
+                ax.set_title('Melhores características para distinguir as classes')
+                ax.legend()
+        elif k == 2:
+            for i in range(0,5):
+                c1,c2 = scores_sorted[i][0]
+                dados_melhores = x1[:,[c1,c2]] #pego todas as linhas das colunas das melhores características
+                print(dados_melhores.shape)
+
+                #Plotando as 3 melhores características para distinguir entre os estados de sono
+
+                import matplotlib.pyplot as plt
+
+                fig = plt.figure(figsize=(18,15))
+                for classe in np.unique(y1):
+                    plt.scatter(dados_melhores[y1==classe,0], dados_melhores[y1==classe,1], label =classe) #ploto todos do estágio 1
+                
+                plt._xlabel(f'{nomes_carac[c1]}' if nomes_carac else f'Feature {c1+1}')
+                plt.ylabel(f'{nomes_carac[c2]}' if nomes_carac else f'Feature {c2+1}')
+                plt.title('Melhores características para distinguir as classes')
+                plt.legend()
+            
+    return Sw, Sb, scores_sorted
+
+def selecao_vetorial(
+    x1 = [],
+    y1 = [],
+    nomes_carac = [],
+    k = 3,
+    plotar = False,
+    interativo = False,
+    salvar_interativo = False
+):
+    """
+    Seleção vetorial de características pelo critério de Fisher (traço) e plot das
+    melhores combinações (k=2 ou k=3).
+
+    A função calcula as matrizes de espalhamento intra-classes (Sw) e entre-classes (Sb),
+    avalia todas as combinações de features p tomadas k a k usando a razão de Fisher:
+        J(features) = trace(Sb_features) / trace(Sw_features)
+    e retorna a lista ordenada (decrescente) dessas combinações. Opcionalmente plota
+    as top-5 combinações em 2D (k=2) ou 3D (k=3), com Matplotlib (padrão) ou Plotly
+    (interativo=True). Se `salvar_interativo=True`, o gráfico interativo é salvo como
+    arquivo HTML com o nome igual ao título do gráfico.
+
+    Parâmetros
+    ----------
+    x1 : array-like (n_amostras, n_features)
+        Matriz de dados (características). Deve ser conversível para NumPy 2D.
+    y1 : array-like (n_amostras,)
+        Vetor de rótulos/classe para cada amostra (qualquer tipo hashable).
+    nomes_carac : list[str], opcional
+        Lista com os nomes das features (len == n_features). Se ausente, usa "Feature i".
+    k : int, {2, 3}
+        Dimensionalidade do subespaço para avaliação/plot (pares ou trincas de features).
+    plotar : bool
+        Se True, plota as top-5 combinações de acordo com k.
+    interativo : bool
+        Se True, usa Plotly para gráficos interativos; caso contrário usa Matplotlib.
+    salvar_interativo : bool
+        Se True, salva os gráficos interativos em arquivos .html (o nome é o título do gráfico).
+
+    Retorna
+    -------
+    Sw : np.ndarray (p, p)
+        Matriz de espalhamento intra-classes.
+    Sb : np.ndarray (p, p)
+        Matriz de espalhamento entre-classes.
+    scores_sorted : list[tuple[tuple[int,...], float]]
+        Lista ordenada das combinações e seus escores de Fisher.
+
+    Notas
+    -----
+    - O plot (se habilitado) mostra até as 5 melhores combinações.
+    - Para gráficos interativos é necessário ter `plotly` instalado no mesmo ambiente.
+    - Se `salvar_interativo=True`, os arquivos são salvos com o título do gráfico como nome.
+    """
+    import numpy as np
+    from itertools import combinations
+
+    if k not in [2, 3]:
+        raise ValueError('Só são permitidos valores de k em [2,3]')
+
+    x1 = np.asarray(x1)
+    y1 = np.asarray(y1)
+    classes = np.unique(y1)
+    mediaTotal = np.mean(x1, axis=0)
+
+    Sw = np.zeros((x1.shape[1], x1.shape[1]))
+    Sb = np.zeros((x1.shape[1], x1.shape[1]))
+
+    for c in classes:
+        xc = x1[y1 == c]
+        media_classe = np.mean(xc, axis=0)
+        Sw += (xc - media_classe).T @ (xc - media_classe)
+        n = xc.shape[0]
+        diferenca = (media_classe - mediaTotal).reshape(-1, 1)
+        Sb += n * (diferenca @ diferenca.T)
+
+    def fisher_ratio(Sw, Sb, features):
+        Sw_f = Sw[np.ix_(features, features)]
+        Sb_f = Sb[np.ix_(features, features)]
+        return np.trace(Sb_f) / np.trace(Sw_f)
+
+    p = x1.shape[1]
+    scores = [(comb, fisher_ratio(Sw, Sb, comb)) for comb in combinations(range(p), k)]
+    scores_sorted = sorted(scores, key=lambda t: t[1], reverse=True)
+
+    print("Top 5 combinações de características (índices) e seus Fisher ratios:")
+    for comb, J in scores_sorted[:5]:
+        print("Features:", comb, " -> J =", J)
+
+    if plotar:
+        import matplotlib.pyplot as plt
+        if interativo:
+            import plotly.express as px
+            import pandas as pd
+
+        def nome(i):
+            return (nomes_carac[i] if nomes_carac else f"Feature {i+1}")
+
+        topo = min(5, len(scores_sorted))
+        for i in range(topo):
+            comb = scores_sorted[i][0]
+            dados_melhores = x1[:, list(comb)]
+            title = f"Top {i+1} — ({', '.join([nome(c) for c in comb])})"
+
+            if interativo:
+                df = pd.DataFrame({
+                    nome(comb[0]): dados_melhores[:, 0],
+                    nome(comb[1]): dados_melhores[:, 1],
+                    "classe": y1.astype(str)
+                })
+                if k == 3:
+                    df[nome(comb[2])] = dados_melhores[:, 2]
+                    fig = px.scatter_3d(df, x=nome(comb[0]), y=nome(comb[1]), z=nome(comb[2]),
+                                        color="classe", title=title)
+                else:
+                    fig = px.scatter(df, x=nome(comb[0]), y=nome(comb[1]),
+                                     color="classe", title=title)
+
+                fig.update_traces(marker=dict(size=6))
+                fig.update_layout(scene_aspectmode="data")
+                fig.show()
+
+                if salvar_interativo:
+                    file_name = f"{title.replace('—', '-').replace(' ', '_').replace('(', '').replace(')', '').replace(',', '_')}.html"
+                    fig.write_html(file_name)
+                    print(f"Gráfico interativo salvo em: {file_name}")
+
+            else:
+                if k == 3:
+                    from mpl_toolkits.mplot3d import Axes3D
+                    fig = plt.figure(figsize=(10, 8))
+                    ax = fig.add_subplot(111, projection='3d')
+                    for classe in np.unique(y1):
+                        sel = (y1 == classe)
+                        ax.scatter(dados_melhores[sel, 0], dados_melhores[sel, 1],
+                                   dados_melhores[sel, 2], label=str(classe))
+                    ax.set_xlabel(nome(comb[0])); ax.set_ylabel(nome(comb[1])); ax.set_zlabel(nome(comb[2]))
+                    ax.set_title(title)
+                    ax.legend()
+                    plt.show()
+                else:
+                    fig = plt.figure(figsize=(10, 8))
+                    for classe in np.unique(y1):
+                        sel = (y1 == classe)
+                        plt.scatter(dados_melhores[sel, 0], dados_melhores[sel, 1],
+                                    label=str(classe))
+                    plt.xlabel(nome(comb[0]))
+                    plt.ylabel(nome(comb[1]))
+                    plt.title(title)
+                    plt.legend()
+                    plt.show()
+
+    return Sw, Sb, scores_sorted
+
+
 
 #%%#---------------------------- Funções de Plot dos resultados ----------------------------
 
