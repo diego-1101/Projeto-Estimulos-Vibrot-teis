@@ -792,6 +792,240 @@ def selecao_vetorial(
 
     return Sw, Sb, scores_sorted
 
+def manova1_py(
+    X,
+    groups,
+    k_plot=3,
+    plotar=True,
+    interativo=False,
+    salvar_interativo=False,
+    title_prefix="MANOVA1 / CDA"
+):
+    """
+    Executa MANOVA de 1 fator (one-way) com variáveis canônicas (CDA) no estilo do MATLAB manova1.
+
+    Parâmetros
+    ----------
+    X : array-like (n_amostras, n_variaveis)
+        Matriz de dados (variáveis dependentes).
+    groups : array-like (n_amostras,)
+        Vetor com o fator (grupos; 1 fator). Pode ser string, int etc.
+    k_plot : int, {2,3}, opcional (default=3)
+        Dimensionalidade para o plot (2D ou 3D) usando as primeiras variáveis canônicas.
+    plotar : bool, opcional (default=True)
+        Se True, gera o gráfico das variáveis canônicas.
+    interativo : bool, opcional (default=False)
+        Se True, usa Plotly para gráfico interativo; senão, Matplotlib.
+    salvar_interativo : bool, opcional (default=False)
+        Se True e interativo=True, salva o gráfico .html com o título como nome do arquivo.
+    title_prefix : str, opcional
+        Prefixo do título do gráfico (também base do nome do arquivo .html).
+
+    Retorna
+    -------
+    D : np.ndarray (g, g)
+        Matriz de distâncias de Mahalanobis entre médias de grupos (simétrica, diagonal zero).
+    P : np.ndarray (m,)
+        p-values sequenciais (teste de Wilks para raízes 1..m com aproximação qui-quadrado).
+        m = min(p, g-1).
+    stats : dict
+        Dicionário com campos típicos do manova1:
+        - 'W', 'B', 'T' : matrizes de espalhamento within/between/total (p x p)
+        - 'eigvals'     : autovalores de inv(W)@B (roots canônicas), decrescentes (m,)
+        - 'eigvecs'     : autovetores/coeficientes canônicos (p x m)
+        - 'scores'      : escores canônicos Z = (X - mean) @ eigvecs (n x m)
+        - 'overall_mean': média global (p,)
+        - 'group_means' : DataFrame com médias por grupo (g x p)
+        - 'group_sizes' : Series com n_i por grupo
+        - 'labels'      : array de labels (ordem usada internamente)
+        - 'wilks_lambda_seq' : lambdas sequenciais para raízes 1..m
+        - 'chi2'        : estatística qui-quadrado de Bartlett por raiz (1..m)
+        - 'df'          : graus de liberdade do teste de Bartlett por raiz (1..m)
+
+    Observações
+    -----------
+    - A MANOVA aqui é one-way (um único fator em 'groups').
+    - Teste global baseado em Wilks' lambda com aproximação de Bartlett.
+    - D (Mahalanobis) usa a covariância pooled (W/(N-g)) entre médias de grupos.
+    - Para gráficos interativos é necessário ter plotly instalado no MESMO ambiente.
+    """
+    import numpy as np
+    import pandas as pd
+    from numpy.linalg import inv, eig
+    from scipy.stats import chi2
+
+    # --- checagens e preparo ---
+    X = np.asarray(X, dtype=float)
+    gvec = np.asarray(groups)
+    if X.ndim != 2:
+        raise ValueError("X deve ser 2D (n_amostras, n_variaveis).")
+    n, p = X.shape
+    labels = pd.unique(gvec)
+    g = len(labels)
+    if g < 2:
+        raise ValueError("É necessário pelo menos 2 grupos.")
+
+    # index por grupo
+    idx_by = {lab: np.where(gvec == lab)[0] for lab in labels}
+    n_i = {lab: len(idx_by[lab]) for lab in labels}
+    if any(v == 0 for v in n_i.values()):
+        raise ValueError("Algum grupo está vazio.")
+
+    # médias
+    overall_mean = X.mean(axis=0)
+    means = {lab: X[idx_by[lab]].mean(axis=0) for lab in labels}
+
+    # --- matrizes de espalhamento ---
+    W = np.zeros((p, p))
+    for lab in labels:
+        Xi = X[idx_by[lab]]
+        dif = Xi - means[lab]
+        W += dif.T @ dif
+    B = np.zeros((p, p))
+    for lab in labels:
+        d = (means[lab] - overall_mean).reshape(-1, 1)
+        B += n_i[lab] * (d @ d.T)
+    T = W + B
+
+    # --- autovalores/vetores de inv(W)B ---
+    # (se W for singular, uma regularização leve pode ser necessária no mundo real)
+    evals, evecs = eig(inv(W) @ B)
+    order = np.argsort(-evals.real)
+    evals = evals[order].real
+    evecs = evecs[:, order].real
+    m = min(p, g - 1)
+    eigvals = evals[:m]
+    eigvecs = evecs[:, :m]
+
+    # --- escores canônicos ---
+    Z = (X - overall_mean) @ eigvecs  # n x m
+
+    # --- Wilks' lambda sequencial + Bartlett chi2 approx e p-values ---
+    # Lambda_total = Π 1/(1+λ_j). Para teste sequencial da raiz r..m:
+    # lambda_r = Π_{j=r..m} 1/(1+λ_j)
+    # Bartlett: X2 = -[(N - 1) - (p + g)/2] * ln(lambda_r), df = (p - r + 1)*(g - r)
+    lambdas_seq = []
+    chi2_seq = []
+    df_seq = []
+    pvalues = []
+    # N_effective ~ N_total - (g), mas a fórmula clássica abaixo usa (N - 1) - (p + g)/2
+    N_eff = n
+    for r in range(1, m + 1):
+        lam_r = np.prod(1.0 / (1.0 + eigvals[r - 1:]))
+        lambdas_seq.append(lam_r)
+        t = (N_eff - 1) - (p + g) / 2.0
+        t = max(t, 1e-9)  # proteção
+        chi2_stat = -t * np.log(lam_r)
+        df_r = (p - r + 1) * (g - r)
+        df_r = int(max(df_r, 1))
+        chi2_seq.append(chi2_stat)
+        df_seq.append(df_r)
+        pval = 1.0 - chi2.cdf(chi2_stat, df_r)
+        pvalues.append(pval)
+    P = np.asarray(pvalues)
+
+    # --- distâncias de Mahalanobis entre médias dos grupos (pooled covariance) ---
+    # Sp = W / (N - g)
+    Sp = W / max(n - g, 1)
+    Sp_inv = inv(Sp)
+    D = np.zeros((g, g))
+    means_mat = np.vstack([means[lab] for lab in labels])
+    for i in range(g):
+        for j in range(i + 1, g):
+            diff = means_mat[i] - means_mat[j]
+            dij2 = float(diff.T @ Sp_inv @ diff)
+            D[i, j] = D[j, i] = np.sqrt(max(dij2, 0.0))
+
+    # --- montar stats ---
+    stats = {
+        "W": W,
+        "B": B,
+        "T": T,
+        "eigvals": eigvals,
+        "eigvecs": eigvecs,       # coeficientes canônicos (colunas = variáveis canônicas)
+        "scores": Z,              # escores canônicos (linhas = amostras)
+        "overall_mean": overall_mean,
+        "group_means": pd.DataFrame(means_mat, index=labels, columns=[f"Var{i+1}" for i in range(p)]),
+        "group_sizes": pd.Series(n_i)[labels],
+        "labels": labels,
+        "wilks_lambda_seq": np.array(lambdas_seq),
+        "chi2": np.array(chi2_seq),
+        "df": np.array(df_seq),
+    }
+
+    # --- plot opcional ---
+    if plotar:
+        k_plot = 3 if k_plot not in (2, 3) else k_plot
+        titulo = f"{title_prefix} — Canônicas ({'3D' if k_plot==3 else '2D'})"
+        if interativo:
+            try:
+                import plotly.express as px
+            except Exception as e:
+                raise ImportError("Plot interativo requer 'plotly'. Instale com: pip install plotly") from e
+
+            df_plot = pd.DataFrame({"grupo": gvec.astype(str)})
+            df_plot["Can1"] = Z[:, 0]
+            if m >= 2:
+                df_plot["Can2"] = Z[:, 1]
+            else:
+                df_plot["Can2"] = 0.0
+            if k_plot == 3:
+                if m >= 3:
+                    df_plot["Can3"] = Z[:, 2]
+                else:
+                    df_plot["Can3"] = 0.0
+
+            if k_plot == 3:
+                fig = px.scatter_3d(df_plot, x="Can1", y="Can2", z="Can3", color="grupo", title=titulo)
+            else:
+                fig = px.scatter(df_plot, x="Can1", y="Can2", color="grupo", title=titulo)
+
+            fig.update_traces(marker=dict(size=6))
+            fig.update_layout(legend_title_text="Grupo")
+            fig.show()
+
+            if salvar_interativo:
+                safe = (titulo.replace("—", "-")
+                             .replace(" ", "_")
+                             .replace("/", "_")
+                             .replace("(", "")
+                             .replace(")", ""))
+                fname = f"{safe}.html"
+                fig.write_html(fname)
+                print(f"💾 Gráfico interativo salvo em: {fname}")
+
+        else:
+            import matplotlib.pyplot as plt
+            if k_plot == 3:
+                from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+                fig = plt.figure(figsize=(10, 8))
+                ax = fig.add_subplot(111, projection='3d')
+                # coordenadas
+                x = Z[:, 0]
+                y = Z[:, 1] if m >= 2 else np.zeros_like(x)
+                z = Z[:, 2] if m >= 3 else np.zeros_like(x)
+                for lab in labels:
+                    sel = (gvec == lab)
+                    ax.scatter(x[sel], y[sel], z[sel], label=str(lab), s=16)
+                ax.set_xlabel("Can1"); ax.set_ylabel("Can2"); ax.set_zlabel("Can3")
+                ax.set_title(titulo)
+                ax.legend()
+                plt.show()
+            else:
+                import matplotlib.pyplot as plt
+                plt.figure(figsize=(10, 8))
+                x = Z[:, 0]
+                y = Z[:, 1] if m >= 2 else np.zeros_like(x)
+                for lab in labels:
+                    sel = (gvec == lab)
+                    plt.scatter(x[sel], y[sel], label=str(lab), s=16)
+                plt.xlabel("Can1"); plt.ylabel("Can2")
+                plt.title(titulo); plt.legend()
+                plt.show()
+
+    return D, P, stats
+
+
 
 
 #%%#---------------------------- Funções de Plot dos resultados ----------------------------
