@@ -34,42 +34,42 @@ print('Teste de Normalidade dos desempenhos de todo Protocolo A')
 print('---'*100)
 normalidade_A = ev.teste_normalidade_completo(df_protA['Desempenho'])
 
-# --------------------------------------- ANOVA ---------------------------------------
+#%% --------------------------------------- ANOVA ---------------------------------------
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from statsmodels.stats.multicomp import MultiComparison
 
-modelo = ols('Desempenho ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
+modelo = ols('desempenho_ponderado ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)
 print("Resultados da ANOVA do protocolo A:")
 print(anova)
 print('---'*100)
 
 # Post-hoc test (Tukey's HSD)
-mc = MultiComparison(df_protA['Desempenho'], df_protA['grupo_complexidade'])
+mc = MultiComparison(df_protA['desempenho_ponderado'], df_protA['grupo'])
 resultado = mc.tukeyhsd()
 print(resultado.summary())
 print('---'*100)
 
-# --------------------------------------- Plots ---------------------------------------
+#%% --------------------------------------- Plots ---------------------------------------
 
 # 1. Dotplot
 ev.dot_ic_sig(
     df=df_protA,
-    x='grupo_complexidade_overlap',
-    y='Desempenho',
-    order=df_protA['grupo_complexidade_overlap'].unique(),  
+    x='grupo',
+    y='desempenho_ponderado',
+    order=df_protA['grupo'].unique(),  
     alpha=0.05,
     show_p_text=True,          # True para escrever p-values
     ylim=(0, 1.1),
-    title='Prot A — grupo_complexidade_overlap'
+    title='Prot A — grupo'
 )
 
 # 2. Barplot
 ev.bar_ic95(
     df=df_protA,
     x='grupo_complexidade',
-    y='Desempenho',
+    y='desempenho_ponderado',
     hue='grupo',                            # coluna do grupo
     hue_order=['CV','SV'],                  # opcional
     palette={'CV':'#4C78A8','SV':'#F58518'},  # opcional (ou passe lista de cores)
@@ -81,7 +81,6 @@ ev.bar_ic95(
 # 3. Interaction Plot
 
 from scipy.stats import t
-
 
 #Mapas de rótulos e ordens dos fatores
 comp_order   = [4, 6, 8]
@@ -156,7 +155,6 @@ plt.show()
 
 # Interaction Plot sem facetar por Grupo 
 
-#Interaction Plot com os 
 
 # Ordens e rótulos
 comp_order = [4,6,8]
@@ -173,7 +171,7 @@ df['velocidade']   = pd.Categorical(df['velocidade'],   categories=vel_order,  o
 df['Desempenho_%'] = 100*df['Desempenho']
 
 # Agregar CV+SV juntos: média, desvio, n e IC95% por (Complexidade, Velocidade)
-stats = (df.groupby(['Complexidade','velocidade'])['Desempenho_%']
+stats = (df.groupby(['Complexidade','velocidade'])['Desempenho']
            .agg(mean='mean', std='std', count='count').reset_index())
 
 def ci95(std, n):
@@ -512,3 +510,77 @@ ax.set_title('Prot C — Desempenho por Complexidade (média ± IC95%)')
 ax.grid(True, ls='--', alpha=.3)
 fig.tight_layout()
 plt.show()
+
+#%% Testes para ver como está sendo calculado o intervalo de confiança 
+from scipy import stats
+print('Resultados do IC para grupo_complexidade') 
+for i in df_protA['grupo_complexidade'].unique():
+    dados = df_protA[df_protA['grupo_complexidade'] == f'{i}']['Desempenho']
+    n = len(dados)
+    desvio = np.std(dados,ddof = 1) # Amostral
+    # Nível de confiança (ex: 95%)
+    conf = 0.95
+    # Valor crítico t (bilateral)
+    t_crit = stats.t.ppf((1 + conf) / 2, df=n-1)
+    erro_padrao = (desvio / np.sqrt(n))
+    ic = t_crit * (desvio / np.sqrt(n))
+    print('--'*5, f'grupo_complexidade: {i}', '--'*5)
+    print(f'Dp = {desvio}, n = {n}, erro padrão = {erro_padrao} ic = {ic}')
+#%%
+print('Resultados do IC para grupo')
+for i in df_protA['grupo'].unique():
+    dados = df_protA[df_protA['grupo'] == f'{i}']['Desempenho']
+    n = len(dados)
+    desvio = np.std(dados,ddof = 1) # Amostral
+    # Nível de confiança (ex: 95%)
+    conf = 0.95
+    # Valor crítico t (bilateral)
+    t_crit = stats.t.ppf((1 + conf) / 2, df=n-1)
+    erro_padrao = (desvio / np.sqrt(n))
+    ic = t_crit * (desvio / np.sqrt(n))
+    print('--'*5, f'Grupo: {i}', '--'*5)
+    print(f'Dp = {desvio}, n = {n}, erro padrão = {erro_padrao} ic = {ic}')
+#%%
+print('Resultados do IC para grupo_complexidade_overlap')
+for i in df_protA['grupo_complexidade_overlap'].unique():
+    dados = df_protA[df_protA['grupo_complexidade_overlap'] == f'{i}']['Desempenho']
+    n = len(dados)
+    desvio = np.std(dados,ddof = 1) # Amostral
+    # Nível de confiança (ex: 95%)
+    conf = 0.95
+    # Valor crítico t (bilateral)
+    t_crit = stats.t.ppf((1 + conf) / 2, df=n-1)
+    erro_padrao = (desvio / np.sqrt(n))
+    ic = t_crit * (desvio / np.sqrt(n))
+    print('--'*5, f'grupo_complexidade_overlap: {i}', '--'*5)
+    print(f'Dp = {desvio}, n = {n}, erro padrão = {erro_padrao} ic = {ic}')
+# %% Fazendo uma seleção vetorial para melhor visualizar os clusters de cada classe
+
+# 1) Normalizando os dados, para isso vou usar o método Standardscaler do sklearn
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+# Protocolo A
+
+
+'''
+pca = PCA()
+x1 = pca.fit_transform(x1)'''
+
+#caracteristicas = ['Proporção espacial x', 'Proporção espacial y','Acuracia',
+#               'Similaridade', 'Especificidade']
+caracteristicas = ['Acuracia',
+               'Similaridade', 'Especificidade']
+x1 = df_protA[caracteristicas].to_numpy() #vetor de características
+for classe in ['grupo', 'grupo_complexidade','grupo_complexidade_overlap']:
+    print('--'*100)
+    print(f'Classe: {classe}')
+    y1 = df_protA[classe].to_numpy() #vetor de classes
+    y1 = y1.reshape(-1) # fazendo o flatten do vetor de classes (removendo o (x,1))
+    x1 = StandardScaler().fit_transform(x1) #normalização
+    ev.selecao_vetorial(x1 = x1, y1 = y1, nomes_carac = caracteristicas, k = 2, plotar = True, 
+                        interativo = False, salvar_interativo=False)
+    print('--'*100)
+
+# %%
