@@ -1418,7 +1418,7 @@ def dot_ic_sig(
     if grid:
         ax.grid(True, linestyle='--', alpha=0.3)
     ax.legend()
-    plt.xticks(rotation=0)
+    plt.xticks(rotation=45)
     plt.tight_layout()
 
     # -----------------------------------------
@@ -1713,7 +1713,8 @@ def interaction_plot(
     grid=True,
     markers=None,       # dict opcional: {nível_line: 'o'|'s'|...} (usado no matplotlib)
     colors=None,        # dict opcional: {nível_line: '#hex'...}
-    percent_auto=True   # se True e ~>60% dos valores de y estiverem em [0,1], plota em %
+    percent_auto=True,   # se True e ~>60% dos valores de y estiverem em [0,1], plota em %
+    ylim=(0.0, 1.1), 
 ):
     """
     Faz um interaction plot (média ± IC) entre `x` e `line`, com opção de facet por `facet`.
@@ -1801,6 +1802,9 @@ def interaction_plot(
     data[y_plot_col] = data[y] * (100.0 if use_pct else 1.0)
     y_label = f"{y} (%)" if use_pct else y
 
+    scale = 100.0 if use_pct else 1.0
+    ylim_plot = (ylim[0]*scale, ylim[1]*scale) if ylim is not None else None
+    
     # Aplicar ordens se fornecidas
     if x_order is not None:
         data[x] = pd.Categorical(data[x], categories=x_order, ordered=True)
@@ -1878,6 +1882,7 @@ def interaction_plot(
                 xaxis_title=_label_map(x, None) if not x_map else x,
                 yaxis_title=y_label,
                 legend_title_text=line if not line_map else line,
+                yaxis_range=ylim_plot  # <<< aplicar limites
             )
         else:
             # sem facet: um gráfico só, várias linhas
@@ -1979,6 +1984,8 @@ def interaction_plot(
         ax.set_xticks(np.arange(len(x_levels)))
         ax.set_xticklabels([_label_map(v, x_map) for v in x_levels])
         ax.set_xlabel(x)
+        if ylim_plot is not None:      # <<< aplicar limites
+            ax.set_ylim(*ylim_plot)
         if grid:
             ax.grid(True, ls='--', alpha=0.3)
 
