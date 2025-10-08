@@ -39,7 +39,7 @@ print('Teste de Normalidade dos desempenhos de todo Protocolo A')
 print('---'*100)
 normalidade_A = ev.teste_normalidade_completo(df_protA['Desempenho'])
 
-#%% --------------------------------------- ANOVA ---------------------------------------
+# --------------------------------------- ANOVA ---------------------------------------
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from statsmodels.stats.multicomp import MultiComparison
@@ -382,7 +382,6 @@ ev.bar_ic95(
 
 
 #%% B Protocol
-
 # --------------------------------------- Teste de Normalidade ---------------------------------------
 alpha = 0.05
 print('---'*100)
@@ -402,7 +401,7 @@ print('Teste de Normalidade dos desempenhos de todo Protocolo B')
 print('---'*100)
 normalidade_B = ev.teste_normalidade_completo(df_protB['Desempenho'])
 
-# --------------------------------------- BNOVB ---------------------------------------
+# --------------------------------------- ANOVA ---------------------------------------
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from statsmodels.stats.multicomp import MultiComparison
@@ -428,7 +427,8 @@ ev.dot_ic_sig(
     y='Desempenho',
     order=df_protB['grupo_complexidade'].unique(),  
     alpha=0.05,
-    show_p_text=True,          # True para escrever p-values
+    show_sig_bars=True, 
+    show_p_text=False,          # True para escrever p-values
     ylim=(0, 1.1),
     title='Prot B — grupo_complexidade'
 )
@@ -442,99 +442,37 @@ ev.bar_ic95(
     hue_order=['CF','SF'],                  # opcional
     palette={'CF':'#4C78B8','SF':'#F58518'},  # opcional (ou passe lista de cores)
     ylim=(0, 1.1),
-    rotate_xticks=0,
-    title='Prot B — Complexidade por Grupo'
+    rotate_xticks=45,
+    title='Prot B — grupo_complexidade'
 )
 
 # 3. Interaction Plot
-from scipy.stats import t
-import re
-
-
-# Garantir tipos e escala do desfecho 
-df['Desempenho'] = pd.to_numeric(df['Desempenho'], errors='coerce')
-use_pct = df['Desempenho'].dropna().between(0, 1).mean() > 0.6  # auto: 0–1 vira %
-df['Desempenho_plot'] = df['Desempenho'] * (100 if use_pct else 1.0)
-y_label = 'Desempenho médio (%)' if use_pct else 'Desempenho médio'
-
-# Normalizar níveis de Complexidade e Grupo 
-comp_raw = df['Complexidade'].astype(str).str.strip()
-comp_num = comp_raw.str.extract(r'(\d+)')[0].astype(float)
-df['_COMP_LABEL_'] = comp_raw
-df['_COMP_NUM_'] = comp_num
-
-# ordem preferida 4–6–8 (ou a ordem numérica presente)
-comp_order_num = [c for c in [4, 6, 8] if c in comp_num.dropna().unique()]
-if not comp_order_num:
-    comp_order_num = sorted(comp_num.dropna().unique().tolist())
-
-# mapeia de volta para os rótulos originais (C4 ou 4) na ordem desejada
-order_comp_labels = []
-for c in comp_order_num:
-    lbls = df.loc[df['_COMP_NUM_'] == c, '_COMP_LABEL_'].dropna().unique()
-    order_comp_labels.append(lbls[0] if len(lbls) else str(int(c)))
-
-# rótulos “bonitos” do eixo x (6 -> 'Média')
-ticklabels = []
-for lab in order_comp_labels:
-    m = re.search(r'(\d+)', str(lab))
-    if m:
-        val = int(m.group(1))
-        ticklabels.append({4:'Fácil', 6:'Média', 8:'Difícil'}.get(val, str(lab)))
-    else:
-        ticklabels.append(str(lab))
-
-# Grupos agora são CF (Com feedback) e SF (Sem feedback)
-df['_GRUPO_'] = df['grupo'].astype(str).str.strip().str.upper()
-group_order = [g for g in ['CF', 'SF'] if g in df['_GRUPO_'].unique()]
-if not group_order:
-    group_order = sorted(df['_GRUPO_'].unique().tolist())
-title_map = {'CF':'Com feedback', 'SF':'Sem feedback'}
-
-# Agregar: média, desvio, n e IC95% por (Grupo, Complexidade)
-stats = (df[['Desempenho_plot', '_GRUPO_', '_COMP_LABEL_']]
-         .dropna()
-         .groupby(['_GRUPO_', '_COMP_LABEL_'])['Desempenho_plot']
-         .agg(mean='mean', std='std', count='count')
-         .reset_index())
-
-def ci95(std, n):
-    if pd.notnull(std) and n and n > 1:
-        sem = std / np.sqrt(n)
-        return t.ppf(0.975, df=int(n)-1) * sem
-    return np.nan
-
-stats['ci95'] = stats.apply(lambda r: ci95(r['std'], r['count']), axis=1)
-
-# Garante grade completa na ordem desejada
-idx = pd.MultiIndex.from_product([group_order, order_comp_labels],
-                                 names=['_GRUPO_', '_COMP_LABEL_'])
-stats = stats.set_index(['_GRUPO_', '_COMP_LABEL_']).reindex(idx).reset_index()
-
-# Plot: dois painéis lado a lado, média ± IC95% 
-xpos = np.arange(len(order_comp_labels))
-fig, axes = plt.subplots(1, len(group_order), figsize=(12, 4), sharey=True)
-if len(group_order) == 1:
-    axes = [axes]
-
-for ax, g in zip(axes, group_order):
-    sub = stats[stats['_GRUPO_'] == g].set_index('_COMP_LABEL_').reindex(order_comp_labels)
-    ymean = sub['mean'].values.astype(float)
-    yerr  = sub['ci95'].values.astype(float)
-
-    ax.errorbar(xpos, ymean, yerr=yerr, fmt='o', ms=7, lw=2, capsize=4)
-    ax.plot(xpos, ymean, '-', lw=2, alpha=0.9)
-
-    ax.set_title(f"Grupo: {title_map.get(g, g)}")
-    ax.set_xticks(xpos); ax.set_xticklabels(ticklabels)
-    ax.set_xlabel('Complexidade')
-    ax.grid(True, ls='--', alpha=.3)
-
-axes[0].set_ylabel(y_label)
-fig.suptitle('Prot B — Interação Complexidade × Grupo (média ± IC95%)', y=1.05, fontsize=12)
-fig.tight_layout()
-plt.show()
-
+# 3.1. Desempenho × Grupo (linhas = Complexidade)
+# 3.1.1. Não Facetado 
+(fig, axes), stats = ev.interaction_plot(
+    df=df_protB,
+    x='grupo',
+    line='nivel',                      # ← linhas = complexidades
+    y='Desempenho_ponderado',                  
+    x_order=['CF','SF'],
+    line_order=['Fácil','Médio','Difícil'],
+    title='Desempenho_ponderado × Grupo (linhas = Complexidades)',
+    figsize=(12,4),
+    ylim=(0.2,1)
+)
+# 3.2. Desempenho_ponderado × Complexidade (linhas = Grupo)
+# 3.2.1. Não Facetado 
+(fig, axes), stats = ev.interaction_plot(
+    df=df_protB,
+    x='nivel',
+    line='grupo',                      # ← linhas = complexidades
+    y='Desempenho_ponderado',
+    x_order = ['Fácil','Médio','Difícil'],
+    line_order=['CF','SF'],
+    title='Desempenho_ponderado × Complexidade (linhas = Grupos)',
+    figsize=(12,4),
+    ylim=(0.2,1)
+)
 
 #%% C Protocol
 
@@ -679,9 +617,8 @@ fig.tight_layout()
 plt.show()
 
 # %% Fazendo uma seleção vetorial para melhor visualizar os clusters de cada classe
-
-# Protocolo A
-# 1) Normalizando os dados, para isso vou usar o método Standardscaler do sklearn
+#%% Protocolo A
+# Normalizando os dados, para isso vou usar o método Standardscaler do sklearn
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -704,13 +641,57 @@ for classe in ['grupo', 'grupo_complexidade','grupo_complexidade_overlap']:
                         interativo = False, salvar_interativo=False)
     print('--'*100)
 
+#%% Protocolo B
+# Normalizando os dados, para isso vou usar o método Standardscaler do sklearn
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+'''
+pca = PCA()
+x1 = pca.fit_transform(x1)'''
+
+caracteristicas = ['Proporção espacial x', 'Proporção espacial y','Acuracia',
+               'Similaridade', 'Especificidade']
+#caracteristicas = ['Acuracia',
+#               'Similaridade', 'Especificidade']
+x1 = df_protB[caracteristicas].to_numpy() #vetor de características
+for classe in ['grupo', 'grupo_complexidade']:
+    print('--'*100)
+    print(f'Classe: {classe}')
+    y1 = df_protB[classe].to_numpy() #vetor de classes
+    y1 = y1.reshape(-1) # fazendo o flatten do vetor de classes (removendo o (x,1))
+    x1 = StandardScaler().fit_transform(x1) #normalização
+    ev.selecao_vetorial(x1 = x1, y1 = y1, nomes_carac = caracteristicas, k = 3, plotar = True, 
+                        interativo = False, salvar_interativo=False)
+    print('--'*100)
+
 # %% Fazendo os plots de CDA
 
+#%% Protocolo A
 x1 = df_protA[caracteristicas].to_numpy() #vetor de características
 for classe in ['grupo', 'grupo_complexidade','grupo_complexidade_overlap','Overlap', 'Complexidade']:
     print('--'*100)
     print(f'Classe: {classe}')
     y1 = df_protA[classe].to_numpy() #vetor de classes
+    y1 = y1.reshape(-1) # fazendo o flatten do vetor de classes (removendo o (x,1))
+    x1 = StandardScaler().fit_transform(x1) #normalização
+    ev.manova1_py(
+    X= x1,
+    groups = y1,
+    k_plot=2,
+    plotar=True,
+    interativo=True,
+    salvar_interativo=False,
+    title_prefix="MANOVA1 / CDA"
+)
+    print('--'*100)
+
+#%% Protocolo B
+x1 = df_protB[caracteristicas].to_numpy() #vetor de características
+for classe in ['grupo', 'grupo_complexidade', 'Complexidade']:
+    print('--'*100)
+    print(f'Classe: {classe}')
+    y1 = df_protB[classe].to_numpy() #vetor de classes
     y1 = y1.reshape(-1) # fazendo o flatten do vetor de classes (removendo o (x,1))
     x1 = StandardScaler().fit_transform(x1) #normalização
     ev.manova1_py(
