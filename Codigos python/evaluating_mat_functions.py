@@ -1101,7 +1101,7 @@ def plotar_desempenhos(data,titulo,parametro):
     plt.tight_layout()
     plt.show()
 
-def dot_ic_sig(
+def dot_ic_sig1(
     df, x, y='Desempenho',
     order=None,
     alpha=0.05,
@@ -1259,6 +1259,274 @@ def dot_ic_sig(
     # Retornos úteis para relatório
     group_stats = g.rename(columns={x: 'group'})
     return fig, ax, tukey_df, sig_pairs, group_stats
+
+def dot_ic_sig(
+    df, x, y='Desempenho',
+    order=None,
+    alpha=0.05,
+    show_sig_bars=False,       # << novo: só desenha as barras se True
+    show_p_text=False,         # se False, usa estrelas
+    star_thresh=((0.001,'***'), (0.01,'**'), (0.05,'*')),
+    test='auto',               # 'auto' -> t-test se 2 grupos, Tukey se >=3
+    equal_var=False,           # Welch (False) por padrão no t-test
+    figsize=(12,6),
+    jitter=True, dot_alpha=0.5, dot_color='gray',
+    annotate_means=True, text_offset=0.01,
+    y_pad=0.02, step=0.04, cap_width=0.08, line_w=1.6,
+    ylim=None, title=None, grid=True, savepath=None,
+    seed=None
+):
+    """
+    Dot plot por grupo com média ± IC95% e (opcionalmente) barras de significância no topo.
+
+    O que faz:
+      - Plota a dispersão dos dados (um ponto por amostra) para cada nível de `x`;
+      - Desenha, para cada grupo, a média e o IC95% (Student t);
+      - Se `show_sig_bars=True`, testa diferenças entre grupos e desenha chaves no topo:
+          * Se houver exatamente 2 grupos: t-teste (Welch por padrão: equal_var=False).
+            Também calcula e retorna o tamanho de efeito (Cohen's d).
+          * Se houver ≥3 grupos: teste post-hoc de Tukey HSD.
+
+    Parâmetros
+    ----------
+    df : pandas.DataFrame
+        DataFrame contendo ao menos as colunas `x` (categórica) e `y` (numérica).
+    x : str
+        Nome da coluna categórica (grupos).
+    y : str, default 'Desempenho'
+        Nome da coluna numérica do desfecho.
+    order : list[str] | None
+        Ordem dos níveis de `x`. Se None, usa a ordem categórica ou sorted(unique).
+    alpha : float, default 0.05
+        Nível de significância.
+    show_sig_bars : bool, default False
+        Se True, desenha as barras de significância no topo.
+    show_p_text : bool, default False
+        Se True, escreve "p=..." nas barras; senão usa estrelas conforme `star_thresh`.
+    star_thresh : tuple
+        Mapeamento (limiar, símbolo) para converter p-values em estrelas.
+    test : {'auto','ttest','tukey'}
+        Estratégia do teste. 'auto' escolhe t-teste (2 grupos) ou Tukey (≥3).
+    equal_var : bool
+        Suposição de variâncias iguais no t-teste. Por padrão False (Welch).
+    figsize : tuple, default (12,6)
+        Tamanho da figura matplotlib.
+    jitter : bool, default True
+        Liga/desliga jitter nos pontos (seaborn.stripplot).
+    dot_alpha : float, default 0.5
+        Transparência dos pontos.
+    dot_color : str, default 'gray'
+        Cor dos pontos.
+    annotate_means : bool, default True
+        Escreve média e IC acima do marcador da média.
+    text_offset : float
+        Deslocamento vertical do texto da média/IC, em fração da altura do eixo y.
+    y_pad, step, cap_width, line_w : floats
+        Parâmetros geométricos das barras de significância (altura base, passo, largura da “aba”, espessura).
+    ylim : tuple | None
+        Limites do eixo y. None mantém automático.
+    title : str | None
+        Título.
+    grid : bool
+        Grade no fundo do gráfico.
+    savepath : str | None
+        Caminho para salvar a figura (png/svg/pdf).
+    seed : int | None
+        Semente para reprodutibilidade do jitter.
+
+    Retorna
+    -------
+    fig, ax : matplotlib Figure, Axes
+    stats_table : pandas.DataFrame
+        Tabela com média, desvio e IC95% por grupo.
+    sig_results : pandas.DataFrame | None
+        * Se 2 grupos e show_sig_bars=True: DataFrame com t, df, p, Cohen's d.
+        * Se ≥3 grupos e show_sig_bars=True: DataFrame do Tukey HSD.
+        * Caso contrário, None.
+
+    Observações
+    -----------
+    - Para Tukey HSD requer statsmodels instalado.
+    - Para 2 grupos usa scipy.stats.ttest_ind.
+    """
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas.api.types as ptypes
+    from scipy.stats import t as t_dist
+    from scipy.stats import ttest_ind
+
+    if seed is not None:
+        np.random.seed(seed)
+
+    # --- preparar dados ---
+    data = df[[x, y]].dropna().copy()
+
+    # ordem dos grupos
+    if order is None:
+        if ptypes.is_categorical_dtype(data[x]):
+            order = list(data[x].cat.categories)
+        else:
+            order = sorted(data[x].unique().tolist())
+
+    # --- figura base ---
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Dispersão (dotplot)
+    sns.stripplot(
+        data=data, x=x, y=y, order=order,
+        jitter=jitter, color=dot_color, alpha=dot_alpha, ax=ax
+    )
+
+    # --- estatísticas por grupo ---
+    g = (data.groupby(x)[y]
+         .agg(mean='mean', std='std', count='count')
+         .reindex(order)
+         .reset_index())
+
+    # IC95% (Student t)
+    def _ci95(std, n):
+        if n and n > 1 and pd.notnull(std):
+            sem = std / np.sqrt(n)
+            return t_dist.ppf(0.975, df=n-1) * sem
+        return np.nan
+    g['ci95'] = [_ci95(s, n) for s, n in zip(g['std'], g['count'])]
+
+    # Média ± IC
+    # para posicionar textos com offset relativo ao range do eixo
+    y_vals = data[y].values
+    y_range = (np.nanmax(y_vals) - np.nanmin(y_vals)) if len(y_vals) else 1.0
+    for i, row in g.iterrows():
+        m, ci = row['mean'], row['ci95']
+        ax.errorbar(i, m, yerr=ci, fmt='o', color='blue', capsize=5, markersize=8,
+                    label='Média ± IC95%' if i == 0 else "")
+        if annotate_means:
+            off = text_offset * y_range
+            txt_ci = f"±{ci:.3g}" if pd.notnull(ci) else "n/a"
+            ax.text(i, (m + (ci if pd.notnull(ci) else 0)) + off,
+                    f"Média: {m:.3g}\nIC95: {txt_ci}",
+                    ha='center', va='bottom', fontsize=9, color='black')
+
+    # Estética base
+    ttl = title if title else f"Dotplot + IC95%"
+    ax.set_title(tl := (ttl if not show_sig_bars else f"{ttl} (α={alpha})"))
+    ax.set_xlabel(x)
+    ax.set_ylabel(y)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    if grid:
+        ax.grid(True, linestyle='--', alpha=0.3)
+    ax.legend()
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+
+    # -----------------------------------------
+    #  SIGNIFICÂNCIA (barras no topo) opcional
+    # -----------------------------------------
+    sig_results = None
+    if show_sig_bars:
+        # funções auxiliares
+        def _p_to_text(p):
+            if show_p_text:
+                return f"p={p:.3g}"
+            for thr, star in star_thresh:
+                if p < thr:
+                    return star
+            return 'ns'
+
+        def _draw_sig_bracket(ax, x1, x2, y0, text):
+            ax.plot([x1, x1, x2, x2], [y0, y0+step*0.25, y0+step*0.25, y0], color='k', lw=line_w)
+            ax.plot([x1, x1-cap_width], [y0, y0], color='k', lw=line_w)
+            ax.plot([x2, x2+cap_width], [y0, y0], color='k', lw=line_w)
+            ax.text((x1+x2)/2, y0 + step*0.28, text, ha='center', va='bottom', fontsize=12)
+
+        # topo para empilhar barras
+        tops = (g['mean'] + g['ci95'].fillna(0)).values
+        x_pos = {lvl: i for i, lvl in enumerate(order)}
+
+        levels = []  # para empilhar sem colisão
+        def _get_free_level(a, b):
+            for lvl, intervals in enumerate(levels):
+                # conflito se (a,b) sobrepõe qualquer (ia,ib)
+                if any(not (b <= ia or a >= ib) for ia, ib in intervals):
+                    continue
+                intervals.append((a, b))
+                return lvl
+            levels.append([(a, b)])
+            return len(levels)-1
+
+        unique_groups = order
+        k_groups = len(unique_groups)
+
+        # Caso 1: exatamente 2 grupos -> t-test
+        if (test == 'ttest') or (test == 'auto' and k_groups == 2):
+            g1, g2 = unique_groups[0], unique_groups[1]
+            d1 = data.loc[data[x] == g1, y].values
+            d2 = data.loc[data[x] == g2, y].values
+            tt = ttest_ind(d1, d2, equal_var=equal_var, nan_policy='omit')
+            # Cohen's d (pooled) – versão robusta
+            n1, n2 = len(d1), len(d2)
+            s1, s2 = np.nanstd(d1, ddof=1), np.nanstd(d2, ddof=1)
+            sp = np.sqrt(((n1-1)*s1**2 + (n2-1)*s2**2) / max(n1+n2-2, 1))
+            d_cohen = (np.nanmean(d1) - np.nanmean(d2)) / sp if sp > 0 else np.nan
+            df_t = n1 + n2 - 2 if equal_var else np.nan  # Welch tem df efetivo; aqui omitimos
+
+            sig_results = pd.DataFrame({
+                'group1':[g1], 'group2':[g2],
+                'statistic':[tt.statistic], 'pvalue':[tt.pvalue],
+                'df':[df_t], 'cohens_d':[d_cohen],
+                'test':['t-test (Welch)' if not equal_var else 't-test (equal var)']
+            })
+
+            # desenhar 1 barra
+            xa, xb = x_pos[g1], x_pos[g2]
+            y_base = tops.max() + y_pad*(np.nanmax(y_vals)-np.nanmin(y_vals) if ylim is None else (ylim[1]-ylim[0]))
+            local_top = max(tops[xa], tops[xb]) + y_pad
+            lvl = _get_free_level(min(xa, xb), max(xa, xb))
+            y0 = max(y_base + lvl*step, local_top + lvl*step*0.6)
+            _draw_sig_bracket(ax, xa, xb, y0, _p_to_text(tt.pvalue))
+
+        # Caso 2: ≥ 3 grupos -> Tukey HSD
+        elif (test == 'tukey') or (test == 'auto' and k_groups >= 3):
+            from statsmodels.stats.multicomp import pairwise_tukeyhsd
+            tukey = pairwise_tukeyhsd(endog=data[y].values, groups=data[x].values, alpha=alpha)
+            res = tukey.summary()
+            tk = pd.DataFrame(res.data[1:], columns=res.data[0])
+            # normalizar colunas
+            tk['p_adj']  = pd.to_numeric(tk['p-adj'], errors='coerce')
+            tk['reject'] = tk['reject'].astype(str).str.lower().map({'true': True, 'false': False})
+            sig_results = tk.copy()
+
+            sig_pairs = tk[tk['reject']].copy()
+            if not sig_pairs.empty:
+                sig_pairs['x1'] = sig_pairs['group1'].map(x_pos)
+                sig_pairs['x2'] = sig_pairs['group2'].map(x_pos)
+                sig_pairs[['xa','xb']] = np.sort(sig_pairs[['x1','x2']].values, axis=1)
+                sig_pairs = sig_pairs.sort_values(by=['xb','xa'])
+
+                # base de altura
+                auto_span = (np.nanmax(y_vals) - np.nanmin(y_vals)) if ylim is None else (ylim[1]-ylim[0])
+                y_base = tops.max() + y_pad*auto_span
+
+                for _, r in sig_pairs.iterrows():
+                    xa, xb = int(r['xa']), int(r['xb'])
+                    local_top = max(tops[xa], tops[xb]) + y_pad
+                    lvl = _get_free_level(xa, xb)
+                    y0 = max(y_base + lvl*step, local_top + lvl*step*0.6)
+                    txt = (f"p={r['p_adj']:.3g}" if show_p_text else _p_to_text(r['p_adj']))
+                    _draw_sig_bracket(ax, xa, xb, y0, txt)
+
+        else:
+            raise ValueError("Parâmetro 'test' inválido. Use 'auto', 'ttest' ou 'tukey'.")
+
+        plt.tight_layout()
+
+    if savepath:
+        fig.savefig(savepath, dpi=300, bbox_inches='tight')
+
+    stats_table = g.rename(columns={x: 'group'})
+    return fig, ax, stats_table, sig_results
 
 def bar_ic95(
     df, x, y='Desempenho', hue=None,
@@ -1425,3 +1693,309 @@ def bar_ic95(
     
     plt.tight_layout()
     return fig, ax, stats
+
+def interaction_plot(
+    df,
+    x,                  # coluna categórica no eixo X (ex.: "Complexidade")
+    line,               # coluna que define as linhas (ex.: "velocidade")
+    y='Desempenho',     # coluna do desfecho
+    facet=None,         # coluna para facetar (ex.: "grupo") ou None
+    fixed=None,         # dict para filtrar dados, e.g. {"velocidade": "Médio"} ou {"velocidade":["Médio","Rápido"]}
+    # Ordem e rótulos
+    x_order=None, line_order=None, facet_order=None,
+    x_map=None, line_map=None, facet_map=None,
+    # Visual / estatística
+    ci=0.95,            # nível de confiança (ex.: 0.95)
+    interativo=False,   # Plotly (True) ou Matplotlib (False)
+    salvar_interativo=False,  # se interativo=True, salva .html com o título como nome do arquivo
+    title=None,
+    figsize=(12, 5),
+    grid=True,
+    markers=None,       # dict opcional: {nível_line: 'o'|'s'|...} (usado no matplotlib)
+    colors=None,        # dict opcional: {nível_line: '#hex'...}
+    percent_auto=True   # se True e ~>60% dos valores de y estiverem em [0,1], plota em %
+):
+    """
+    Faz um interaction plot (média ± IC) entre `x` e `line`, com opção de facet por `facet`.
+
+    Exemplos de uso:
+    ----------------
+    # 1) “Como o desempenho varia com Complexidade (linhas = Velocidade), facetado por Grupo”
+    interaction_plot(df_protA, x='Complexidade', line='velocidade', y='Desempenho',
+                     facet='grupo', x_order=[4,6,8],
+                     line_order=['Lento','Médio','Rápido'],
+                     facet_order=['CV','SV'],
+                     x_map={4:'Fácil',6:'Intermediário',8:'Difícil'},
+                     title='Complexidade × Velocidade | facetado por Grupo')
+
+    # 2) “Como o desempenho varia com Velocidade (linhas = Complexidade), dado Complexidade=6 (filtro)”
+    interaction_plot(df_protA, x='velocidade', line='grupo', y='Desempenho',
+                     fixed={'Complexidade': 6},
+                     x_order=['Lento','Médio','Rápido'],
+                     line_order=['CV','SV'],
+                     title='Velocidade × Grupo (Complexidade = 6)')
+
+    Parâmetros
+    ----------
+    df : DataFrame
+        Tabela com os dados.
+    x : str
+        Coluna categórica usada no eixo X.
+    line : str
+        Coluna categórica que define as diferentes linhas (cores).
+    y : str, default 'Desempenho'
+        Coluna numérica do desfecho.
+    facet : str | None
+        Coluna categórica para facetar (um subplot/face por nível).
+    fixed : dict | None
+        Filtros a aplicar antes de agregar, ex.: {'velocidade':'Médio'} ou {'velocidade':['Lento','Médio']}.
+    x_order, line_order, facet_order : list | None
+        Ordens desejadas para os níveis de cada fator.
+    x_map, line_map, facet_map : dict | None
+        Mapeamentos de rótulos para eixos/legendas (ex.: {4:'Fácil', 6:'Médio', 8:'Difícil'}).
+    ci : float
+        Nível de confiança para barras de erro (Student t).
+    interativo : bool
+        Se True, usa Plotly; senão, Matplotlib.
+    salvar_interativo : bool
+        Se True e interativo=True, salva o gráfico .html com o título como nome do arquivo.
+    title : str | None
+        Título do gráfico.
+    figsize : tuple
+        Tamanho da figura (no Matplotlib).
+    grid : bool
+        Mostra grid (no Matplotlib).
+    markers : dict | None
+        Marcadores por nível de `line` (Matplotlib). Ex.: {'Lento':'o','Médio':'s','Rápido':'D'}
+    colors : dict | None
+        Cores por nível de `line`. Ex.: {'Lento':'#F59E0B', 'Médio':'#3B82F6', 'Rápido':'#10B981'}
+    percent_auto : bool
+        Se True, e se ~>60% dos valores de y ∈ [0,1], converte y em porcentagem.
+
+    Retorna
+    -------
+    plot_obj : (fig, ax_or_axes) no Matplotlib, ou `fig` do Plotly
+    stats_df : DataFrame de agregação com mean, std, count, ci para cada combinação.
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import t as t_dist
+
+    data = df[[c for c in [x, line, y, facet] if c is not None]].dropna().copy()
+
+    # Aplicar filtros (fixed)
+    if fixed:
+        for col, val in fixed.items():
+            if isinstance(val, (list, tuple, set, np.ndarray, pd.Series)):
+                data = data[data[col].isin(list(val))]
+            else:
+                data = data[data[col] == val]
+
+    # percent_auto: converter y em % se fizer sentido
+    y_vals = data[y].dropna().values
+    use_pct = False
+    if percent_auto and len(y_vals):
+        frac_01 = np.nanmean((y_vals >= 0) & (y_vals <= 1))
+        use_pct = frac_01 > 0.6
+    y_plot_col = f"{y}_plot"
+    data[y_plot_col] = data[y] * (100.0 if use_pct else 1.0)
+    y_label = f"{y} (%)" if use_pct else y
+
+    # Aplicar ordens se fornecidas
+    if x_order is not None:
+        data[x] = pd.Categorical(data[x], categories=x_order, ordered=True)
+    if line_order is not None:
+        data[line] = pd.Categorical(data[line], categories=line_order, ordered=True)
+    if facet and (facet_order is not None):
+        data[facet] = pd.Categorical(data[facet], categories=facet_order, ordered=True)
+
+    # Agregar: média, desvio, n e IC
+    group_cols = [c for c in [facet, x, line] if c is not None]
+    stats = (data.groupby(group_cols, dropna=False)[y_plot_col]
+             .agg(mean='mean', std='std', count='count')
+             .reset_index())
+
+    def _ci_level(std, n, ci=0.95):
+        if n and n > 1 and pd.notnull(std):
+            sem = std / np.sqrt(n)
+            # bilateral
+            q = 0.5 + ci/2.0
+            return t_dist.ppf(q, df=n-1) * sem
+        return np.nan
+
+    stats['ci'] = [_ci_level(s, n, ci=ci) for s, n in zip(stats['std'], stats['count'])]
+
+    # Funções helpers para rótulos
+    def _label_map(val, mapping):
+        return mapping.get(val, val) if mapping else val
+
+    # ---------- PLOTLY (interativo) ----------
+    if interativo:
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+        except Exception as e:
+            raise ImportError("interativo=True requer o pacote 'plotly' instalado.") from e
+
+        title_eff = title or f"Interaction plot: {x} × {line}" + (f" | facet: {facet}" if facet else "")
+
+        # Rótulos amigáveis nos eixos/legenda
+        stats['_xlab'] = stats[x].map(lambda v: _label_map(v, x_map))
+        stats['_llab'] = stats[line].map(lambda v: _label_map(v, line_map))
+        if facet:
+            stats['_flab'] = stats[facet].map(lambda v: _label_map(v, facet_map))
+
+        # Para linhas com barras de erro: usar go.Figure e adicionar traces por (facet,line)
+        if facet:
+            fig = go.Figure()
+            # garantir a ordem
+            f_levels = stats['_flab'].dropna().unique().tolist()
+            if facet_order is not None:
+                f_levels = [_label_map(v, facet_map) for v in facet_order if v in stats[facet].unique()]
+            for fval in f_levels:
+                sub_f = stats[stats['_flab'] == fval]
+                # ordem de lines:
+                l_levels = sub_f['_llab'].dropna().unique().tolist()
+                if line_order is not None:
+                    l_levels = [_label_map(v, line_map)
+                                for v in line_order
+                                if _label_map(v, line_map) in l_levels]
+                for lval in l_levels:
+                    sub = sub_f[sub_f['_llab'] == lval].copy()
+                    # ordenar por x
+                    if x_order is not None:
+                        sub['_xlab'] = pd.Categorical(sub['_xlab'],
+                                                      categories=[_label_map(v, x_map) for v in x_order], ordered=True)
+                        sub = sub.sort_values('_xlab')
+                    fig.add_trace(go.Scatter(
+                        x=sub['_xlab'], y=sub['mean'],
+                        error_y=dict(type='data', array=sub['ci'], visible=True),
+                        mode='lines+markers',
+                        name=f"{lval} | {fval}",
+                    ))
+            fig.update_layout(
+                title=title_eff,
+                xaxis_title=_label_map(x, None) if not x_map else x,
+                yaxis_title=y_label,
+                legend_title_text=line if not line_map else line,
+            )
+        else:
+            # sem facet: um gráfico só, várias linhas
+            fig = go.Figure()
+            l_levels = stats[line].dropna().unique().tolist()
+            if line_order is not None:
+                l_levels = [lvl for lvl in line_order if lvl in stats[line].unique()]
+            for lval in l_levels:
+                sub = stats[stats[line] == lval].copy()
+                # ordenar por x
+                if x_order is not None:
+                    sub[x] = pd.Categorical(sub[x], categories=x_order, ordered=True)
+                    sub = sub.sort_values(x)
+                fig.add_trace(go.Scatter(
+                    x=sub[x].map(lambda v: _label_map(v, x_map)),
+                    y=sub['mean'],
+                    error_y=dict(type='data', array=sub['ci'], visible=True),
+                    mode='lines+markers',
+                    name=_label_map(lval, line_map),
+                    line=dict(color=(colors.get(lval) if colors else None)),
+                    marker=dict(symbol=None)  # Plotly escolhe símbolo padrão; pode customizar
+                ))
+            fig.update_layout(
+                title=title_eff,
+                xaxis_title=x if not x_map else x,
+                yaxis_title=y_label,
+                legend_title_text=line if not line_map else line,
+            )
+
+        fig.show()
+
+        if salvar_interativo:
+            safe = (title_eff or "interaction_plot").replace("—","-").replace(" ", "_").replace("/","_")
+            fig.write_html(f"{safe}.html")
+            print(f"💾 Gráfico interativo salvo em: {safe}.html")
+
+        return fig, stats
+
+    # ---------- MATPLOTLIB ----------
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    # ordens “efetivas” para plotar
+    x_levels = stats[x].dropna().unique().tolist()
+    l_levels = stats[line].dropna().unique().tolist()
+
+    if x_order is not None:
+        x_levels = [lvl for lvl in x_order if lvl in stats[x].unique()]
+    if line_order is not None:
+        l_levels = [lvl for lvl in line_order if lvl in stats[line].unique()]
+
+    # markers default
+    default_markers = ['o', 's', 'D', '^', 'v', '<', '>', 'P', 'X']
+    if markers is None:
+        markers = {lvl: default_markers[i % len(default_markers)] for i, lvl in enumerate(l_levels)}
+
+    # cores default
+    default_colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', ['#1f77b4','#ff7f0e','#2ca02c'])
+    if colors is None:
+        colors = {lvl: default_colors[i % len(default_colors)] for i, lvl in enumerate(l_levels)}
+
+    # Preparar figure/axes
+    if facet:
+        f_levels = stats[facet].dropna().unique().tolist()
+        if facet_order is not None:
+            f_levels = [lvl for lvl in facet_order if lvl in stats[facet].unique()]
+        nF = len(f_levels)# tornar os subplots mais largos
+        fig, axes = plt.subplots(1, nF, figsize=(14,4), sharey=True)
+        if nF == 1:
+            axes = [axes]
+    else:
+        fig, ax = plt.subplots(figsize=figsize)
+        axes = [ax]
+        f_levels = [None]
+
+    for ax, fval in zip(axes, f_levels):
+        sub = stats if fval is None else stats[stats[facet] == fval]
+
+        # para cada linha (nível de `line`)
+        for lval in l_levels:
+            subl = sub[sub[line] == lval].copy()
+            # ordenar por x
+            if x_order is not None:
+                subl[x] = pd.Categorical(subl[x], categories=x_order, ordered=True)
+                subl = subl.sort_values(x)
+
+            xx = subl[x].map(lambda v: _label_map(v, x_map)).values
+            yy = subl['mean'].values.astype(float)
+            ee = subl['ci'].values.astype(float)
+
+            ax.errorbar(
+                np.arange(len(xx)), yy, yerr=ee,
+                fmt=markers[lval], ms=7, lw=2, capsize=4,
+                color=colors[lval], label=_label_map(lval, line_map)
+            )
+            ax.plot(np.arange(len(xx)), yy, '-', color=colors[lval], lw=2, alpha=0.9)
+
+        # eixos / título
+        ax.set_xticks(np.arange(len(x_levels)))
+        ax.set_xticklabels([_label_map(v, x_map) for v in x_levels])
+        ax.set_xlabel(x)
+        if grid:
+            ax.grid(True, ls='--', alpha=0.3)
+
+        if fval is not None:
+            ax.set_title(f"{facet}: {_label_map(fval, facet_map)}")
+
+    # y label, título e legenda global
+    axes[0].set_ylabel(y_label)
+    ttl = title or f"Interaction plot: {x} × {line}" + (f" | facet: {facet}" if facet else "")
+    fig.suptitle(ttl, y=1.02, fontsize=12)
+
+    handles = [Line2D([0],[0], marker=markers[lvl], linestyle='-',
+                      color=colors[lvl], lw=2, markersize=7, label=_label_map(lvl, line_map))
+               for lvl in l_levels]
+    fig.legend(handles, [h.get_label() for h in handles], title=line,
+               loc='center left', bbox_to_anchor=(1.01, 0.5), frameon=False)
+
+    fig.tight_layout(rect=[0, 0, 0.86, 1])
+    fig.tight_layout()
+    return (fig, axes if facet else axes[0]), stats
