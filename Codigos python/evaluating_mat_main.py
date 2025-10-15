@@ -487,134 +487,9 @@ ev.dot_ic_sig(
     ylim=(0, 1.1),
     title='Prot C — Nível'
 )
-
-# 2 Barplot
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import t
-import numpy as np
-
-# Calcular estatísticas de grupo
-group_stats = df_protC.groupby('nivel')['Desempenho'].agg(['mean', 'std', 'count']).reset_index()
-group_stats['sem'] = group_stats['std'] / np.sqrt(group_stats['count'])          # Erro padrão
-group_stats['t_crit'] = group_stats['count'].apply(lambda n: t.ppf(0.975, df=n-1))  # t crítico IC95%
-group_stats['ci95'] = group_stats['t_crit'] * group_stats['sem']                 # Intervalo de confiança
-group_stats['nivel'] = pd.Categorical(group_stats['nivel'],categories = ['Fácil', 'Médio', 'Difícil'],ordered=True)
-group_stats = group_stats.sort_values('nivel').reset_index(drop=True)
-# Renomear colunas para facilitar o uso no barplot
-group_stats.rename(columns={'mean': 'Desempenho'}, inplace=True)
-
-# Plot
-plt.figure(figsize=(8, 6))
-ax = sns.barplot(
-    data=group_stats,
-    x='nivel',
-    y='Desempenho',
-    ci=None,                      # não deixa o seaborn desenhar o erro
-    color='skyblue',
-    edgecolor='black'
-)
-
-# HASTE + CAP (limites) do IC95% — agora com a barra do meio!
-for i, row in group_stats.iterrows():
-    media = row['Desempenho']
-    ci = row['ci95']
-    ax.errorbar(
-        i, media, yerr=ci,
-        fmt='none',
-        ecolor='black',
-        elinewidth=1.5,           # <— HASTE VERTICAL visível
-        capsize=6, capthick=1.5   # <— “orelhas” nos limites
-    )
-    ax.text(i, media + ci + 0.01, f"Média: {media:.2f}\nIC95: ±{ci:.2f}",
-            ha='center', va='bottom', fontsize=8, color='black')
-
-# Estética
-plt.title('Barplot com Média e Intervalo de Confiança 95% por Complexidade')
-plt.ylabel('Desempenho')
-plt.xlabel('Complexidade')
-plt.xticks(rotation=0)
-plt.ylim(0, 1.1)
-plt.grid(True, linestyle='--', alpha=0.3)
-plt.tight_layout()
-plt.show()
-
+# 2. Barplot
 
 # 3. Interaction Plot
-# --- Interaction plot só por Complexidade (Protocolo C) ---
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import t
-import re
-# (opcional) se quiser ler do CSV:
-# import pandas as pd
-# df = pd.read_csv('df_protC_execucao.csv')
-
-# 1) Garantir tipos e escala do desfecho
-df['Desempenho'] = pd.to_numeric(df['Desempenho'], errors='coerce')
-use_pct = df['Desempenho'].dropna().between(0, 1).mean() > 0.6  # auto: 0–1 vira %
-df['Desempenho_plot'] = df['Desempenho'] * (100 if use_pct else 1.0)
-y_label = 'Desempenho médio (%)' if use_pct else 'Desempenho médio'
-
-# 2) Normalizar níveis de Complexidade
-comp_raw = df['Complexidade'].astype(str).str.strip()
-comp_num = comp_raw.str.extract(r'(\d+)')[0].astype(float)
-df['_COMP_LABEL_'] = comp_raw
-df['_COMP_NUM_']   = comp_num
-
-# ordem preferida 4–6–8 (ou a ordem numérica presente)
-comp_order_num = [c for c in [4, 6, 8] if c in comp_num.dropna().unique()]
-if not comp_order_num:
-    comp_order_num = sorted(comp_num.dropna().unique().tolist())
-
-# mapeia para os rótulos originais (ex.: 'C4' ou '4') na ordem desejada
-order_comp_labels = []
-for c in comp_order_num:
-    lbls = df.loc[df['_COMP_NUM_'] == c, '_COMP_LABEL_'].dropna().unique()
-    order_comp_labels.append(lbls[0] if len(lbls) else str(int(c)))
-
-# rótulos “bonitos” do eixo x (6 -> 'Média')
-ticklabels = []
-for lab in order_comp_labels:
-    m = re.search(r'(\d+)', str(lab))
-    if m:
-        val = int(m.group(1))
-        ticklabels.append({4:'Fácil', 6:'Média', 8:'Difícil'}.get(val, str(lab)))
-    else:
-        ticklabels.append(str(lab))
-
-# 3) Agregar: média, desvio, n e IC95% por Complexidade
-stats = (df[['Desempenho_plot', '_COMP_LABEL_']]
-         .dropna()
-         .groupby('_COMP_LABEL_')['Desempenho_plot']
-         .agg(mean='mean', std='std', count='count')
-         .reindex(order_comp_labels)   # garante a ordem desejada no eixo x
-         .reset_index())
-
-def ci95(std, n):
-    if np.isfinite(std) and n and n > 1:
-        sem = std / np.sqrt(n)
-        return t.ppf(0.975, df=int(n)-1) * sem
-    return np.nan
-
-stats['ci95'] = [ci95(s, n) for s, n in zip(stats['std'], stats['count'])]
-
-# 4) Plot: média ± IC95% ao longo das complexidades
-xpos = np.arange(len(order_comp_labels))
-ymean = stats['mean'].values.astype(float)
-yerr  = stats['ci95'].values.astype(float)
-
-fig, ax = plt.subplots(figsize=(8, 4.5))
-ax.errorbar(xpos, ymean, yerr=yerr, fmt='o', ms=7, lw=2, capsize=4)
-ax.plot(xpos, ymean, '-', lw=2, alpha=0.9)
-
-ax.set_xticks(xpos); ax.set_xticklabels(ticklabels)
-ax.set_xlabel('Complexidade')
-ax.set_ylabel(y_label)
-ax.set_title('Prot C — Desempenho por Complexidade (média ± IC95%)')
-ax.grid(True, ls='--', alpha=.3)
-fig.tight_layout()
-plt.show()
 
 # %% Fazendo uma seleção vetorial para melhor visualizar os clusters de cada classe
 #%% Protocolo A
@@ -666,7 +541,6 @@ for classe in ['grupo', 'grupo_complexidade']:
     print('--'*100)
 
 # %% Fazendo os plots de CDA
-
 #%% Protocolo A
 x1 = df_protA[caracteristicas].to_numpy() #vetor de características
 for classe in ['grupo', 'grupo_complexidade','grupo_complexidade_overlap','Overlap', 'Complexidade']:
@@ -704,3 +578,54 @@ for classe in ['grupo', 'grupo_complexidade', 'Complexidade']:
     title_prefix="MANOVA1 / CDA"
 )
     print('--'*100)
+
+#%% Teste de hipótese em cima das proporções
+from scipy import stats
+g1_propx = df_protA[(df_protA['grupo']=='CV') & (df_protA['Proporção espacial x']<=1.0)]['Proporção espacial x']
+g2_propx = df_protA[df_protA['grupo']=='SV']['Proporção espacial x']
+
+# Run the independent t-test (Welch’s version by default)
+t_stat, p_value = stats.ttest_ind(g1_propx, g2_propx, equal_var=False)
+
+print('--'*10)
+print('Teste-t para propx entre CV x SV (sem outlier)')
+print(f"T-statistic = {t_stat:.3f}")
+print(f"P-value = {p_value:.4f}")
+print('--'*20)
+
+g1_propy = df_protA[df_protA['grupo']=='CV']['Proporção espacial y']
+g2_propy = df_protA[df_protA['grupo']=='SV']['Proporção espacial y']
+
+# Run the independent t-test (Welch’s version by default)
+t_stat, p_value = stats.ttest_ind(g1_propy, g2_propy, equal_var=False)
+
+print('--'*10)
+print('Teste-t para propy entre CV x SV (sem outlier)')
+print(f"T-statistic = {t_stat:.3f}")
+print(f"P-value = {p_value:.4f}")
+print('--'*20)
+
+#%% 
+g1_propx = df_protB[(df_protB['grupo']=='CF')]['Proporção espacial x']
+g2_propx = df_protB[df_protB['grupo']=='SF']['Proporção espacial x']
+
+# Run the independent t-test (Welch’s version by default)
+t_stat, p_value = stats.ttest_ind(g1_propx, g2_propx, equal_var=False)
+
+print('--'*10)
+print('Teste-t para propx entre CF x SF (com outlier)')
+print(f"T-statistic = {t_stat:.3f}")
+print(f"P-value = {p_value:.4f}")
+print('--'*20)
+
+g1_propy = df_protB[df_protB['grupo']=='CF']['Proporção espacial y']
+g2_propy = df_protB[df_protB['grupo']=='SF']['Proporção espacial y']
+
+# Run the independent t-test (Welch’s version by default)
+t_stat, p_value = stats.ttest_ind(g1_propy, g2_propy, equal_var=False)
+
+print('--'*10)
+print('Teste-t para propy entre CF x SF (com outlier)')
+print(f"T-statistic = {t_stat:.3f}")
+print(f"P-value = {p_value:.4f}")
+print('--'*20)
