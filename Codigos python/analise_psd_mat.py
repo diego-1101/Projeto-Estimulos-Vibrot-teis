@@ -433,15 +433,16 @@ def plot_bandas_psd(df_master,
 
     return resultados
 
-# Plot com média + std
+# Plot com média + std o erro padrão
 
-def plot_psd_media(df_master,
+def plot_psd_media_canais(df_master,
                    ind,
                    bandas=None,
                    escala_db=False,
                    faixa_total=(0.5, 100),
                    alpha_bandas = 0.125,
                    alpha_desvio = 0.5,
+                   erro_padrao_habilitado = True,
                    titulo_prefixo=None):
     """
     Plota a média e o desvio padrão das PSDs de todos os canais de um indivíduo.
@@ -459,6 +460,8 @@ def plot_psd_media(df_master,
         Se True, converte a PSD média e o desvio para escala dB (10*log10).
     faixa_total : tuple, opcional
         Limite inferior e superior de frequência exibida.
+    erro_padrao_habilitado: bool, opcional
+        Se False, o desvio padrão será plotado ao invés do erro padrão
     titulo_prefixo : str, opcional
         Texto a ser exibido antes do título do gráfico.
     """
@@ -497,7 +500,13 @@ def plot_psd_media(df_master,
     psd_vals = psd_df.values.astype(float)         # shape: (n_canais, n_freqs)
     media_lin = np.nanmean(psd_vals, axis=0)       # (n_freqs,)
     dp_lin    = np.nanstd(psd_vals,  axis=0)
+    n = len(psd_vals)
+    erro_padrao = dp_lin/(n**(1/2))
 
+    # Mostrará o erro padrão e não o desvio padrão
+    if erro_padrao_habilitado:
+        dp_lin= erro_padrao
+        
     # --- converter para dB se pedido ---
     eps = 1e-15  # para evitar log10(0)
     if escala_db:
@@ -563,6 +572,140 @@ def plot_psd_media(df_master,
     plt.tight_layout()
     plt.show()
 
+def plot_psd_media_individuos(df_master,
+                   ch,
+                   bandas=None,
+                   escala_db=False,
+                   faixa_total=(0.5, 100),
+                   alpha_bandas = 0.125,
+                   alpha_desvio = 0.5,
+                   erro_padrao_habilitado = True,
+                   titulo_prefixo=None):
+    """
+    Plota a média e o desvio padrão das PSDs de todos os canais de um indivíduo.
+
+    Parâmetros:
+    ------------
+    df_master : DataFrame
+        DataFrame mestre com colunas 'freqs' e 'psds' (iguais à função plot_bandas_psd).
+    ch : list of str or str
+        Identificador do canal a ser plotado (ex.: 'CZ').
+    bandas : dict, opcional
+        Dicionário com bandas de frequência e intervalos (Hz).
+        Exemplo: {'delta': (0.5,4), 'theta': (4,8), 'alpha': (8,13), 'beta': (13,30), 'gamma': (30,60)}
+    escala_db : bool, opcional
+        Se True, converte a PSD média e o desvio para escala dB (10*log10).
+    faixa_total : tuple, opcional
+        Limite inferior e superior de frequência exibida.
+    erro_padrao_habilitado: bool, opcional
+        Se False, o desvio padrão será plotado ao invés do erro padrão
+    titulo_prefixo : str, opcional
+        Texto a ser exibido antes do título do gráfico.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    def _potencia(y, x):
+        return float(np.trapezoid(y, x)) if y.size and x.size else np.nan
+
+    if bandas is None:
+        bandas = {'delta': (0.5, 4), 'theta': (4, 8),
+                  'alpha': (8, 13), 'beta': (13, 30), 'gamma': (30, 60)}
+
+    band_colors = {'delta':'C0', 'theta':'C1', 'alpha':'C2', 'beta':'C3', 'gamma':'C4'}
+
+    # --- normalizar 'ch' para uma lista de canais ---
+    if isinstance(ch, str):
+        ch = [ch]
+    else:
+        ch = list(ch)  # aceita set/tuple/np.array e converte para list
+
+    # --- obter canais disponíveis de forma robusta ---
+    canais_disponiveis = df_master['psds'].iloc[0].index.astype(str).str.strip().tolist()
+    faltantes = [c for c in ch if c not in canais_disponiveis]
+    if faltantes:
+        raise ValueError(f"Canais inexistentes: {faltantes}. Disponíveis: {canais_disponiveis}")
+
+    freqs_alinh = np.asarray(df_master['freqs'].iloc[0], dtype=float)
+
+    for channel in ch:
+        # --- média e desvio entre indivíduos (domínio linear) ---
+        lista = []
+        for ind in df_master.index:
+            lista.append(df_master['psds'][ind].loc[channel])
+        
+        media_lin = np.mean(lista, axis=0)       # (n_freqs,)
+        dp_lin    = np.std(lista,  axis=0)
+        n = len(lista)
+        erro_padrao = dp_lin/np.sqrt(n)
+
+        # Mostrará o erro padrão e não o desvio padrão
+        if erro_padrao_habilitado:
+            dp_lin= erro_padrao
+            
+        # --- converter para dB se pedido ---
+        eps = 1e-15  # para evitar log10(0)
+        if escala_db:
+            media_db = 10.0 * np.log10(np.maximum(media_lin, eps))
+            upper_db = 10.0 * np.log10(np.maximum(media_lin + dp_lin, eps))
+            lower_db = 10.0 * np.log10(np.maximum(media_lin - dp_lin, eps))
+            curva    = media_db
+            faixa_lo = lower_db
+            faixa_hi = upper_db
+            ylabel   = 'PSD (dB)'
+        else:
+            curva    = media_lin
+            faixa_lo = np.maximum(media_lin - dp_lin, 0.0)  # nada negativo
+            faixa_hi = media_lin + dp_lin
+            ylabel   = 'PSD (uV²/Hz)'
+
+        m_total = (freqs_alinh >= faixa_total[0]) & (freqs_alinh < faixa_total[1])
+        p_total = _potencia(media_lin[m_total], freqs_alinh[m_total])
+
+
+        # --- plot ---
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        # desvio (faixa cinza)
+        ax.fill_between(freqs_alinh, faixa_lo, faixa_hi, color='gray', alpha=alpha_desvio,
+                        label='Desvio padrão', zorder=1)
+
+        # média (linha preta)
+        linha_media, = ax.plot(freqs_alinh, curva, color='black', linewidth=1.6,
+                            label='Média PSD', zorder=2)
+
+        # bandas (sombras suaves; mesmas cores da outra função)
+        band_handles, band_labels = [], []
+        for nome_b, (lo, hi) in bandas.items():
+            hi_eff = min(hi, float(freqs_alinh.max()))
+            m = (freqs_alinh >= lo) & (freqs_alinh < hi_eff)
+            if np.any(m):
+                
+                # potência ABSOLUTA da banda usando a média linear
+                p_abs = _potencia(media_lin[m], freqs_alinh[m])
+                # em dB ou linear, preenche entre os mesmos envelopes da faixa cinza
+                patch = ax.fill_between(freqs_alinh[m],
+                                        faixa_lo[m], faixa_hi[m],
+                                        color=band_colors.get(nome_b, None),
+                                        alpha= alpha_bandas, zorder=0)
+                band_handles.append(patch)
+                band_labels.append(f"{nome_b} (P={p_abs:.3g})")
+
+        # legenda consistente: curva preta + patches das bandas
+        handles = [linha_media] + band_handles
+        labels  = ['Média PSD'] + band_labels
+        ax.legend(handles=handles, labels=labels, loc='upper right',
+                fontsize=9, frameon=True)
+
+        ax.set_xlim(faixa_total)
+        ax.set_xlabel('Frequência (Hz)')
+        ax.set_ylabel(ylabel)
+        tprefix = f"{titulo_prefixo} — " if titulo_prefixo else ""
+        ax.set_title(f"{tprefix}Canal {channel} — Média e Erro Padrão entre Indivíduos" if erro_padrao_habilitado else f"{tprefix}Canal {channel} — Média e Desvio Padrão entre Indivíduos")
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
 #%% Lendo os arquivos .mat e já transformando em Data Frame
 #Pasta dos arquivos
 pasta = r"Arquivos Auxiliares\PSD"
@@ -604,7 +747,7 @@ for baseline in lista_baselines:
         df_especifico[baseline].index = [f'ID{ID}' for ID in df_especifico[baseline].index]
         df_especifico[baseline]['ind'] = [f'ID{IND}' for IND in df_especifico[baseline]['ind']]
 
-# Normalizando pelo base line
+#%% Normalizando pelo base line
 
 '''
 Cada protocolo tem sua especificidade.
@@ -616,7 +759,7 @@ C -> normalizar com a psd de olhos abertos
 
 '''
 
-def normalizar_psd_por_baseline_interp(df_tarefa, df_base, ind, modo='ratio_db', eps=1e-15):
+def normalizar_psd_por_baseline_interp(df_tarefa, df_base, ind, modo='ratio', eps=1e-15):
     """
     Normaliza a PSD da tarefa pela baseline, mesmo com frequências diferentes.
     Alinha as frequências via interpolação.
@@ -646,8 +789,8 @@ def normalizar_psd_por_baseline_interp(df_tarefa, df_base, ind, modo='ratio_db',
         base_interp = np.interp(freqs_t, freqs_b, psd_b.loc[canal].values)
         tarefa = psd_t.loc[canal].values
 
-        if modo == 'ratio_db':
-            norm = 10 * np.log10(np.maximum(tarefa, eps) / np.maximum(base_interp, eps))
+        if modo == 'ratio':
+            norm = tarefa / base_interp
         elif modo == 'percent':
             norm = (tarefa - base_interp) / np.maximum(base_interp, eps) * 100
         elif modo == 'diff':
@@ -666,12 +809,12 @@ df_geral_norm = {}
 for chaves in conjunto_df.keys():
     if not (chaves in lista_baselines):
         if "geral" in chaves:
-            df_geral_norm[f'{chaves}_norm'] = conjunto_df[chaves]
+            df_geral_norm[f'{chaves}_norm'] = conjunto_df[chaves].copy()
         elif 'especifico' in chaves:
-            df_especifico_norm[f'{chaves}_norm']  = conjunto_df[chaves]
+            df_especifico_norm[f'{chaves}_norm']  = conjunto_df[chaves].copy()
 
 # Normalizando os referenciados com os canais específicos
-modo ='diff' # 'diff', 'ratio_db', 'percent'
+modo ='ratio' # 'diff', 'ratio_db', 'percent'
 for chave in df_especifico_norm:
     # Depende de qual protocolo vamos fazer, SV, SF e CF são todos com a baseline de olhos fechados 
     if 'SV' in chave or 'SF'in chave or 'CF' in chave: 
@@ -751,12 +894,12 @@ for ind in df_geral_norm['psd_protA_CV_geral_df_norm'].index:
     plot_psd_media(df_master = df_geral_norm['psd_protA_CV_geral_df_norm'], ind  = ind,faixa_total =(0.5,50), titulo_prefixo='Protocolo A CV geral normalizado')
 
 # Plotar as badas especificas
-# Especifico
+#%% Especifico
 for ind in df_especifico_norm['psd_ProtA_CV_especifico_df_norm'].index:
     plot_bandas_psd(df_master = df_especifico_norm['psd_ProtA_CV_especifico_df_norm'], ind  = ind,faixa_total =(0,100), titulo_prefixo='Protocolo A CV especifico',escala_db=False)
 #%% Geral
-for ind in df_geral_norm['psd_protA_CV_geral_df_norm'].index:
-    plot_bandas_psd(df_master = df_geral_norm['psd_protA_CV_geral_df_norm'], ind  = ind,faixa_total =(0,100), titulo_prefixo='Protocolo A CV geral',escala_db=False)
+for ind in df_especifico['psd_ProtA_CV_especifico_df'].index:
+    plot_bandas_psd(df_master = df_especifico['psd_ProtA_CV_especifico_df'], ind  = ind,faixa_total =(0,100), titulo_prefixo='Protocolo A CV geral',escala_db=False)
 #%%
 df_bandas = extrair_bandpowers(conjunto_df)
 
