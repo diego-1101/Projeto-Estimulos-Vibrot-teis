@@ -125,7 +125,7 @@ def transformar_protA_mat_em_df(protocolo = [], id = []):
 
 #ID dos pacientes naquele protocolo
 id_cv = ['07', '10', '17','21','24','31','36','39']
-id_sv = ['06', '09','16','19','23', '27', '34','37']
+id_sv = ['06', '09','16','19','23', '27', '34','37'] #27 na verdade era para ser 28
 
 # Carregar o arquivo .mat do protocolo 
 A_CV = loadmat('Aquivos mat\ProtA_CV.mat')
