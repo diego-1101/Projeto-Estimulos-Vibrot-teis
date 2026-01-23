@@ -300,5 +300,8 @@ def update_comparison(n, prot, methods, covs, doms, dims, theme, comp):
     fig2, stats2 = run_single_analysis(prot, m2, c2, d2, dim2, theme)
     return fig1, stats1, fig2, stats2
 
+# Expose server for Vercel
+server = app.server
+
 if __name__ == '__main__':
     app.run_server(debug=True, host='0.0.0.0', port=8050)
