@@ -1,0 +1,24 @@
+# Exclude unnecessary files from deployment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.md
+!README.md
+.git/
+.github/
+*.bat
+FEATURES_V2.md
+FIXED.md
+URGENT_FIX.md
+UPDATES.md
+DEPLOYMENT.md
+DEPLOY_CHECKLIST.md
+VERCEL_DEPLOY.md
+utils/
