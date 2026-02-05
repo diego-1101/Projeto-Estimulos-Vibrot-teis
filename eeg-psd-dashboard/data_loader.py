@@ -24,12 +24,40 @@ def load_and_preprocess_data(protocol='A', filepath=None):
     except FileNotFoundError:
         raise FileNotFoundError(f"Could not find data file at {filepath}")
 
+    # Load additional metadata (Complexity, Overlap)
+    try:
+        if protocol == 'A':
+            comp_df = pd.read_csv("data/complexidade_protA.csv")
+            over_df = pd.read_csv("data/overlap_protA.csv")
+            
+            # Assuming row-by-row correspondence (same index)
+            # Remove line numbers from keys if they exist, but user file seemed to have index in first column
+            # We will concat based on index.
+            if len(comp_df) == len(df):
+                df['Complexidade'] = comp_df['Complexidade']
+            
+            if len(over_df) == len(df):
+                df['Overlap'] = over_df['Overlap']
+                
+        elif protocol == 'B':
+            comp_df = pd.read_csv("data/complexidade_protB.csv")
+            if len(comp_df) == len(df):
+                df['Complexidade'] = comp_df['Complexidade']
+                
+    except Exception as e:
+        print(f"Warning: Could not load extra metadata: {e}")
+
     # --- 1. Metadata and Cleaning ---
     # Ensure ID and Group exist
     if 'ID' not in df.columns or 'grupo' not in df.columns:
         raise ValueError("Dataset missing 'ID' or 'grupo' columns.")
         
     meta_cols = ['ID', 'grupo']
+    # Add new cols to meta if they exist
+    if 'Complexidade' in df.columns:
+        meta_cols.append('Complexidade')
+    if 'Overlap' in df.columns:
+        meta_cols.append('Overlap')
     
     # --- 2. Behavioral Features ---
     # Select key behavioral metrics. Add more if available in the CSV.

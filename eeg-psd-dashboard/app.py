@@ -71,9 +71,25 @@ def create_analysis_controls(panel_id):
             value=2,
             className="mb-3"
         ),
+
+        html.Label("Color By", className="control-label"),
+        dcc.Dropdown(
+            id={'type': 'color-dropdown', 'index': panel_id},
+            options=[
+                {'label': 'Group (CV/SV)', 'value': 'group'},
+                {'label': 'Complexity', 'value': 'complexity'},
+                {'label': 'Overlap (Prot A)', 'value': 'overlap'},
+                {'label': 'Group + Complexity', 'value': 'group_comp'},
+                {'label': 'Group + Overlap', 'value': 'group_overlap'},
+                {'label': 'Complexity + Overlap', 'value': 'comp_overlap'},
+                {'label': 'Group + Comp + Overlap', 'value': 'all'}
+            ],
+            value='group',
+            className="mb-3 dash-dropdown"
+        ),
     ], className="comparison-panel mb-3" if panel_id == 2 else "mb-3")
 
-def run_single_analysis(protocol, method, cov_mode, domain, n_dims, theme='light'):
+def run_single_analysis(protocol, method, cov_mode, domain, n_dims, theme='light', color_by='group'):
     """Run analysis and return figure, stats."""
     try:
         if protocol not in data_cache:
@@ -92,20 +108,61 @@ def run_single_analysis(protocol, method, cov_mode, domain, n_dims, theme='light
         
         plot_df = pd.concat([embedding, meta.reset_index(drop=True)], axis=1)
         
+        # --- Coloring Logic ---
+        # Ensure columns exist before using them (handle missing data gracefully)
+        has_complex = 'Complexidade' in plot_df.columns
+        has_overlap = 'Overlap' in plot_df.columns
+        
+        if color_by == 'complexity' and has_complex:
+            plot_df['color_label'] = plot_df['Complexidade'].astype(str)
+            title_suffix = "Complexity"
+        elif color_by == 'overlap' and has_overlap:
+            plot_df['color_label'] = plot_df['Overlap'].astype(str)
+            title_suffix = "Overlap"
+        elif color_by == 'group_comp' and has_complex:
+            plot_df['color_label'] = plot_df['grupo'] + '_C' + plot_df['Complexidade'].astype(str)
+            title_suffix = "Group + Complexity"
+        elif color_by == 'group_overlap' and has_overlap:
+            plot_df['color_label'] = plot_df['grupo'] + '_O' + plot_df['Overlap'].astype(str)
+            title_suffix = "Group + Overlap"
+        elif color_by == 'comp_overlap' and has_complex and has_overlap:
+            plot_df['color_label'] = 'C' + plot_df['Complexidade'].astype(str) + '_O' + plot_df['Overlap'].astype(str)
+            title_suffix = "Complexity + Overlap"
+        elif color_by == 'all' and has_complex and has_overlap:
+            plot_df['color_label'] = plot_df['grupo'] + '_C' + plot_df['Complexidade'].astype(str) + '_O' + plot_df['Overlap'].astype(str)
+            title_suffix = "All Factors"
+        else:
+            # Default to group or fallback
+            plot_df['color_label'] = plot_df['grupo']
+            title_suffix = "Group"
+            if color_by != 'group':
+                title_suffix += " (Data Warning)"
+
+        # Define hover columns properly
+        hover_cols = ['ID', 'grupo']
+        if has_complex: hover_cols.append('Complexidade')
+        if has_overlap: hover_cols.append('Overlap')
+
+        # Colors: We drop specific map to allow Plotly to assign distinct colors for many categories
+        # But we keep specific map for simple Group case
+        color_map = None
+        if color_by == 'group':
+            color_map = {'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'}
+
         if n_dims == 2:
             fig = px.scatter(
-                plot_df, x='C1', y='C2', color='grupo',
-                hover_data=['ID', 'grupo'],
-                color_discrete_map={'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'},
-                title=f"{method} - {cov_mode} - {domain} - Protocol {protocol}"
+                plot_df, x='C1', y='C2', color='color_label',
+                hover_data=hover_cols,
+                color_discrete_map=color_map,
+                title=f"{method} - {cov_mode} - {domain} - {title_suffix}"
             )
             fig.update_traces(marker=dict(size=10, line=dict(width=1, color='white')))
         else:
             fig = px.scatter_3d(
-                plot_df, x='C1', y='C2', z='C3', color='grupo',
-                hover_data=['ID', 'grupo'],
-                color_discrete_map={'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'},
-                title=f"{method} - {cov_mode} - {domain} - Protocol {protocol}"
+                plot_df, x='C1', y='C2', z='C3', color='color_label',
+                hover_data=hover_cols,
+                color_discrete_map=color_map,
+                title=f"{method} - {cov_mode} - {domain} - {title_suffix}"
             )
             fig.update_traces(marker=dict(size=6))
         
@@ -254,20 +311,22 @@ def disable_domains(covs, methods):
      State({'type': 'covariance-mode', 'index': 1}, 'value'),
      State({'type': 'domain-dropdown', 'index': 1}, 'value'),
      State({'type': 'dimensions-radio', 'index': 1}, 'value'),
+     State({'type': 'color-dropdown', 'index': 1}, 'value'),
      State('theme-store', 'data'),
      State('comparison-toggle', 'value')],
     prevent_initial_call=True
 )
-def update_single(n, prot, meth, cov, dom, dims, theme, comp):
+def update_single(n, prot, meth, cov, dom, dims, color, theme, comp):
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
         return fig, "No data", html.P("Ready")
     
-    fig, stats = run_single_analysis(prot, meth, cov, dom, dims, theme)
+    fig, stats = run_single_analysis(prot, meth, cov, dom, dims, theme, color)
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
-        html.P([html.Strong("Method: "), meth])
+        html.P([html.Strong("Method: "), meth]),
+        html.P([html.Strong("Color By: "), color])
     ])
     return fig, stats, info
 
@@ -280,11 +339,12 @@ def update_single(n, prot, meth, cov, dom, dims, theme, comp):
      State({'type': 'covariance-mode', 'index': ALL}, 'value'),
      State({'type': 'domain-dropdown', 'index': ALL}, 'value'),
      State({'type': 'dimensions-radio', 'index': ALL}, 'value'),
+     State({'type': 'color-dropdown', 'index': ALL}, 'value'),
      State('theme-store', 'data'),
      State('comparison-toggle', 'value')],
     prevent_initial_call=True
 )
-def update_comparison(n, prot, methods, covs, doms, dims, theme, comp):
+def update_comparison(n, prot, methods, covs, doms, dims, colors, theme, comp):
     fig = go.Figure()
     fig.update_layout(title="Enable comparison mode")
     
@@ -292,12 +352,12 @@ def update_comparison(n, prot, methods, covs, doms, dims, theme, comp):
         return fig, "No data", fig, "No data"
     
     # Analysis 1
-    m1, c1, d1, dim1 = methods[0], covs[0], doms[0], dims[0]
+    m1, c1, d1, dim1, col1 = methods[0], covs[0], doms[0], dims[0], colors[0]
     # Analysis 2
-    m2, c2, d2, dim2 = methods[1], covs[1], doms[1], dims[1]
+    m2, c2, d2, dim2, col2 = methods[1], covs[1], doms[1], dims[1], colors[1]
     
-    fig1, stats1 = run_single_analysis(prot, m1, c1, d1, dim1, theme)
-    fig2, stats2 = run_single_analysis(prot, m2, c2, d2, dim2, theme)
+    fig1, stats1 = run_single_analysis(prot, m1, c1, d1, dim1, theme, col1)
+    fig2, stats2 = run_single_analysis(prot, m2, c2, d2, dim2, theme, col2)
     return fig1, stats1, fig2, stats2
 
 # Expose server for Vercel
