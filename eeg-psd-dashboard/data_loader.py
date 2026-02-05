@@ -1,38 +1,37 @@
 import pandas as pd
 import numpy as np
+import os
 from sklearn.preprocessing import StandardScaler
 
 def load_and_preprocess_data(protocol='A', filepath=None):
     """
     Loads the dataset and prepares feature matrices.
-    
-    Parameters:
-        protocol (str): 'A' or 'B' to select which protocol data to load.
-        filepath (str): Optional custom filepath. If None, uses default based on protocol.
-    
-    Returns:
-        X_psd (pd.DataFrame): Normalized PSD features.
-        X_bx (pd.DataFrame): Normalized behavioral features.
-        meta (pd.DataFrame): Metadata (ID, Group, Raw Behavior).
-        feature_names (dict): Dictionary of feature lists.
     """
+    # Get the directory where data_loader.py is located
+    base_dir = os.path.dirname(__file__)
+    
     if filepath is None:
-        filepath = f"data/df_{protocol}_final.csv"
+        # Construct absolute path to data file
+        filepath = os.path.join(base_dir, 'data', f'df_{protocol}_final.csv')
     
     try:
         df = pd.read_csv(filepath)
     except FileNotFoundError:
-        raise FileNotFoundError(f"Could not find data file at {filepath}")
+        # Try checking in a few common relative locations if absolute fail
+        try:
+             df = pd.read_csv(f"data/df_{protocol}_final.csv")
+        except:
+             raise FileNotFoundError(f"Could not find data file at {filepath}")
 
-    # Load additional metadata (Complexity, Overlap)
+    # Load additional metadata (Complexity, Overlap) with robust paths
     try:
         if protocol == 'A':
-            comp_df = pd.read_csv("data/complexidade_protA.csv")
-            over_df = pd.read_csv("data/overlap_protA.csv")
+            comp_path = os.path.join(base_dir, 'data', "complexidade_protA.csv")
+            over_path = os.path.join(base_dir, 'data', "overlap_protA.csv")
             
-            # Assuming row-by-row correspondence (same index)
-            # Remove line numbers from keys if they exist, but user file seemed to have index in first column
-            # We will concat based on index.
+            comp_df = pd.read_csv(comp_path)
+            over_df = pd.read_csv(over_path)
+            
             if len(comp_df) == len(df):
                 df['Complexidade'] = comp_df['Complexidade']
             
@@ -40,7 +39,8 @@ def load_and_preprocess_data(protocol='A', filepath=None):
                 df['Overlap'] = over_df['Overlap']
                 
         elif protocol == 'B':
-            comp_df = pd.read_csv("data/complexidade_protB.csv")
+            comp_path = os.path.join(base_dir, 'data', "complexidade_protB.csv")
+            comp_df = pd.read_csv(comp_path)
             if len(comp_df) == len(df):
                 df['Complexidade'] = comp_df['Complexidade']
                 
