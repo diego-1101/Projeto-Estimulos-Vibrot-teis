@@ -910,14 +910,14 @@ df_protA = pd.read_csv('df_protA.csv')
 df_protB = pd.read_csv('df_protB.csv')
 df_protC = pd.read_csv('df_protC.csv')
 
-df_A = df_protA[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho']]
+df_A = df_protA[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho', 'Complexidade']]
 df_A['ID'] = df_A['ID'].str.replace('df_', '', regex=False)
 
-df_B = df_protB[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho']]
+df_B = df_protB[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho', 'Complexidade']]
 df_B['ID'] = df_B['ID'].str.replace('df_', '', regex=False)
 
 df_C = df_protC[df_protC['Fase'] == 'Fase Execucao']
-df_C = df_C[['Tempo 1','Tempo 2', 'ID','Desempenho']]
+df_C = df_C[['Tempo 1','Tempo 2', 'ID','Desempenho', 'Complexidade']]
 df_C['ID'] = df_C['ID'].str.replace('df_', '', regex=False)
 
 # 2) Estruturando X e Y
@@ -1127,6 +1127,25 @@ df_C['Delta_t2'] = df_C['Tempo 2'] - df_C['Tempo_inicio']
 for i, col in enumerate([c for c in df_C.columns if c.startswith('Delta_')]):
     df_C[f'd{i+1}_s'] = df_C[col].dt.total_seconds()
 
+#%% Corrigindo o protocolo C
+
+'''
+A Bruna teve que fazer alguns cortes no sinl original do EEG por conta de artefatos.
+Estes cortes geraram problemas de desíncronização entre os 
+'''
+
+#lendo os arquivos que diz o que foi cortado
+cortes = pd.read_csv(r'Arquivos Auxiliares\cortes_por_ID_trial_protC.csv')
+
+#pegando apenas as linhas da fase de execucao
+cortes = cortes[cortes['ID'].str.contains('_execucao')]
+cortes['ID'] = cortes['ID'].str.extract(r'(ID\d+)')
+
+# padroniza para o formato ID_08 (com underline)
+cortes['ID'] = cortes['ID'].str.replace(r'ID(\d+)', r'ID_\1', regex=True)
+
+#padroniza o numero dos trials
+cortes['Trial'] = cortes['Trial'].str.extract(r'(\d+)')[0].astype(int) 
 
 #%% Cortando os dados 
 import os, re
@@ -2631,7 +2650,7 @@ dict_canais = {
 
 grupos = ['CV', 'SV']
 
-#%% 2. Itere sobre a chave (nome) e o valor (df)
+# 2. Itere sobre a chave (nome) e o valor (df)
 for nome_canal, df_canal in dict_canais.items():
     for grupo in grupos:
         # Monta o nome do arquivo dinamicamente
