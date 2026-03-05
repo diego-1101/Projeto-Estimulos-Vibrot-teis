@@ -706,7 +706,7 @@ def plot_psd_media_individuos(df_master,
         plt.tight_layout()
         plt.show()
 
-#%% Lendo os arquivos .mat e já transformando em Data Frame
+#%% NÃO USAR Lendo os arquivos .mat e já transformando em Data Frame
 #Pasta dos arquivos
 pasta = r"Arquivos Auxiliares\PSD"
 
@@ -747,17 +747,7 @@ for baseline in lista_baselines:
         df_especifico[baseline].index = [f'ID{ID}' for ID in df_especifico[baseline].index]
         df_especifico[baseline]['ind'] = [f'ID{IND}' for IND in df_especifico[baseline]['ind']]
 
-#%% Normalizando pelo base line
-
-'''
-Cada protocolo tem sua especificidade.
-A CV -> normaliza com a psd de olhos abertos
-A SV -> normalizar com a psd de olhos fechados
-B CF -> normaliza com a psd de olhos fechados
-B SF -> normalizar com a psd de olhos fechados
-C -> normalizar com a psd de olhos abertos
-
-'''
+#%% NÃO USAR Normalizando pelo base line
 
 def normalizar_psd_por_baseline_interp(df_tarefa, df_base, ind, modo='ratio', eps=1e-15):
     """
@@ -917,7 +907,9 @@ df_B = df_protB[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho', 'Compl
 df_B['ID'] = df_B['ID'].str.replace('df_', '', regex=False)
 
 df_C = df_protC[df_protC['Fase'] == 'Fase Execucao']
-df_C = df_C[['Tempo 1','Tempo 2', 'ID','Desempenho', 'Complexidade']]
+col_traj = [c for c in df_C.columns if 'ero da Traj' in c][0]
+df_C = df_C[['Tempo 1','Tempo 2', 'ID','Desempenho', 'Complexidade', col_traj]]
+df_C.rename(columns={col_traj: 'n_traj'}, inplace=True)
 df_C['ID'] = df_C['ID'].str.replace('df_', '', regex=False)
 
 # 2) Estruturando X e Y
@@ -1120,14 +1112,34 @@ for _, linha in df_C.iterrows():
     tempos_inicio.append(df_nome_pastas.loc[(df_nome_pastas['ID'] == ind) & (df_nome_pastas['Protocolo'] == prot),'Tempo_inicio'].iloc[0])  # pega o ESCALAR
 df_C['Tempo_inicio'] = pd.to_datetime(tempos_inicio)
 
+
+'''
+Seria isso caso a Bruna não tivesse feito alguns cortes no sinal original
+Como ela precisou fazer uns cortes e concatenou um atrás do outro, 
+    a lógica do tempo 1 e do tempo 2 se alteraram, por isso 
+    eu estou comentando essa parte.
+Caso queria com os valores reais (sem nehum corte, descomentar este trecho)
+
 #Colunas de variação de cada tempo em um formato legível
 df_C['Delta_t1'] = (df_C['Tempo 1'] - df_C['Tempo_inicio'])
 df_C['Delta_t2'] = df_C['Tempo 2'] - df_C['Tempo_inicio']
 #Delta em segundos
 for i, col in enumerate([c for c in df_C.columns if c.startswith('Delta_')]):
     df_C[f'd{i+1}_s'] = df_C[col].dt.total_seconds()
+'''
+primeiros_tempos = df_C.groupby('ID')['Tempo 1'].first().reset_index()
 
-#%% Corrigindo o protocolo C
+#criando um dicionário para mapear cada ID ao seu primeiro tempo
+mapa_primeiro_tempo = primeiros_tempos.set_index('ID')['Tempo 1'].to_dict()
+#aplicar o mapeamento à coluna ID do df_C
+df_C['novo_tempo_inicio'] = df_C['ID'].map(mapa_primeiro_tempo)
+df_C['d1_s'] = 0
+df_C['d2_s'] = 0
+
+# Pegando o tamanho de cada trial
+df_C['tamanho_original_trial'] = df_C['Tempo 2'] - df_C['Tempo 1']
+df_C['tamanho_original_trial'] = df_C['tamanho_original_trial'].dt.total_seconds()
+# Corrigindo o protocolo C
 
 '''
 A Bruna teve que fazer alguns cortes no sinl original do EEG por conta de artefatos.
@@ -1145,7 +1157,95 @@ cortes['ID'] = cortes['ID'].str.extract(r'(ID\d+)')
 cortes['ID'] = cortes['ID'].str.replace(r'ID(\d+)', r'ID_\1', regex=True)
 
 #padroniza o numero dos trials
-cortes['Trial'] = cortes['Trial'].str.extract(r'(\d+)')[0].astype(int) 
+cortes['Trial'] = cortes['Trial'].str.extract(r'(\d+)')[0].astype(int)
+
+# 1) cortar conforme a lógica considerando os cortes dos ruídos 
+import os, re
+import numpy as np
+import pandas as pd
+from scipy.io import loadmat
+PADRAO_ID_ARQUIVO = re.compile(r"ID_?(\d+)") 
+
+
+# 1. Criar a coluna de ordem sequencial dos trials por ID no df_C
+df_C['ordem_trial'] = df_C.groupby('ID').cumcount() + 1
+
+# 2. Agrupar os cortes por (ID, Trial) para capturar múltiplos cortes no mesmo trial
+cortes_grouped = cortes.groupby(['ID', 'Trial']).agg(
+    t_inicial_list=('t_inicial', list),
+    t_final_list=('t_final', list)
+).reset_index()
+
+# 3. Renomear a coluna 'Trial' do cortes_grouped para 'ordem_trial' para facilitar o merge
+cortes_grouped.rename(columns={'Trial': 'ordem_trial'}, inplace=True)
+
+# 4. Fazer merge left com df_C usando ID e ordem_trial
+df_C = df_C.merge(
+    cortes_grouped,
+    how='left',
+    on=['ID', 'ordem_trial']
+)
+
+# 5. Criar a coluna Problema: 1 se houve corte (ou seja, se t_inicial_list não for nulo)
+df_C['Problema'] = df_C['t_inicial_list'].notna().astype(int)
+
+# 6. (Opcional) Renomear as colunas de listas para t_inicial e t_final
+df_C.rename(columns={
+    't_inicial_list': 't_inicial',
+    't_final_list': 't_final'
+}, inplace=True)
+
+# Trocando os missing values de t_inicial e t_final por listas vazias
+
+df_C['t_inicial'] = df_C['t_inicial'].apply(lambda x: x if isinstance(x,list) else [])
+df_C['t_final'] = df_C['t_final'].apply(lambda x: x if isinstance(x,list) else [])
+
+# Corrigindo os tempos para depois cortar certo
+
+id_anterior=''
+for idx, row in df_C.iterrows():
+    print(f"ID: {row['ID']}, Trial: {row['ordem_trial']}")
+    #  resetando as variáveis auxiliares para  proximo ID
+    if row['ID'] != id_anterior:
+        acumulo = 0
+        d2_anterior =0
+        print('reset')
+
+    if (row['ordem_trial'] == 1) & (row['Problema'] != 1):
+        df_C.at[idx,"d1_s"]= 0
+        df_C.at[idx,"d2_s"]= float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial'])
+        d2_anterior = float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial'])
+
+    elif (row['ordem_trial'] == 1) & (row['Problema'] == 1):
+        for t_ini, t_fim in zip(row['t_inicial'], row['t_final']):
+            #print(f"  Corte: {t_ini} - {t_fim}")
+            d_corte = t_fim - t_ini #(segundos)
+            acumulo += d_corte
+            #print('tamanho corte:',d_corte)
+            #print('acumulo:',acumulo)
+        df_C.at[idx,"d1_s"]= 0
+        #print(float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial']) - acumulo)
+        df_C.at[idx,"d2_s"]= float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial']) - acumulo
+        d2_anterior =  float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial']) - acumulo
+        acumulo =0
+    else:
+        df_C.at[idx,"d1_s"]= d2_anterior
+        if row['Problema'] == 1:
+            for t_ini, t_fim in zip(row['t_inicial'], row['t_final']):
+                #print(f"  Corte: {t_ini} - {t_fim}")
+                d_corte = t_fim - t_ini #(segundos)
+                acumulo += d_corte
+                #print('tamanho corte:',d_corte)
+                #print('acumulo:',acumulo)
+            df_C.at[idx,"d2_s"]= float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial']) - acumulo 
+            d2_anterior = float(df_C.iloc[idx]['d1_s']) +  float(row['tamanho_original_trial']) - acumulo
+            acumulo = 0
+        else:
+            df_C.at[idx,"d2_s"] = float(df_C.iloc[idx]['d1_s']) + float(row['tamanho_original_trial']) 
+            d2_anterior = float(df_C.iloc[idx]['d1_s']) +  float(row['tamanho_original_trial']) 
+    id_anterior = row['ID']
+    
+
 
 #%% Cortando os dados 
 import os, re
@@ -1313,7 +1413,6 @@ df_baseline = {
     }
 df_baseline = pd.DataFrame(df_baseline)  
 
-
 #%% Calculando a PSD 
 #Adicionando mais colunas so para um teste
 df_A['Acuracia'] = df_protA['Acuracia']
@@ -1338,6 +1437,16 @@ df_C_final = df_C[~df_C['ID'].isin(erro_C)]
 
 
 #%% Calculo da psd dos trechos e já normalizando pela baseline
+
+'''
+Cada protocolo tem sua especificidade.
+A CV -> normaliza com a psd de olhos abertos
+A SV -> normalizar com a psd de olhos fechados
+B CF -> normaliza com a psd de olhos fechados
+B SF -> normalizar com a psd de olhos fechados
+C -> normalizar com a psd de olhos abertos
+
+'''
 
 from scipy.signal import welch, get_window
 
@@ -1371,31 +1480,52 @@ def add_psd_column(df: pd.DataFrame,
 
         out = {}
         for ch in channels:
-            sig = trecho_dict.get(ch, None)
-            if sig is None:
+            vals = trecho_dict.get(ch, None)
+            if vals is None:
                 out[ch] = None
                 continue
 
-            sig = np.asarray(sig).ravel()
-            if sig.size < 4:  # muito curto
+            if isinstance(vals, list):
+                segs = [np.asarray(s).ravel() for s in vals]
+            else:
+                segs = [np.asarray(vals).ravel()]
+
+            f_final = None
+            pxx_sum = None
+            weight_sum = 0
+
+            for sig in segs:
+                if sig.size < 4:
+                    continue
+
+                nseg = min(nperseg, sig.size)
+                novl = min(noverlap, max(0, nseg // 2))
+
+                f, Pxx = welch(
+                    sig,
+                    fs=fs,
+                    window=win if nseg == nperseg else get_window(window, nseg),
+                    nperseg=nseg,
+                    noverlap=novl,
+                    nfft=nperseg,
+                    detrend=detrend,
+                    scaling=scaling,
+                    return_onesided=True
+                )
+                
+                if f_final is None:
+                    f_final = f
+                    pxx_sum = np.zeros_like(Pxx)
+
+                peso = sig.size
+                if f_final.shape == f.shape:
+                    pxx_sum += Pxx * peso
+                    weight_sum += peso
+
+            if weight_sum > 0:
+                out[ch] = (f_final, pxx_sum / weight_sum)
+            else:
                 out[ch] = None
-                continue
-
-            # Ajusta nperseg para não exceder o tamanho do trecho
-            nseg = min(nperseg, sig.size)
-            novl = min(noverlap, max(0, nseg // 2))
-
-            f, Pxx = welch(
-                sig,
-                fs=fs,
-                window=win if nseg == nperseg else get_window(window, nseg),
-                nperseg=nseg,
-                noverlap=novl,
-                detrend=detrend,
-                scaling=scaling,
-                return_onesided=True
-            )
-            out[ch] = (f, Pxx)
         return out
 
     # aplica linha a linha
@@ -1476,10 +1606,12 @@ noverlap=1024 #nperseg//2
 
 df_A_final = add_psd_column(df_A_final, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)
 df_B_final =  add_psd_column(df_B_final, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)  
+df_C_final = add_psd_column(df_C_final, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)
 df_baseline = add_psd_column(df_baseline, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)
 
 df_A_final = add_bandpowers_per_channel(df_A_final)
 df_B_final = add_bandpowers_per_channel(df_B_final)
+df_C_final = add_bandpowers_per_channel(df_C_final)
 df_baseline = add_bandpowers_per_channel(df_baseline)
 
 #Reordenando as colunas
@@ -1492,8 +1624,10 @@ ordem_colunas = ['Tempo 1', 'Tempo 2', 'Tempo 3', 'ID', 'grupo', 'Desempenho','A
                 'psd_delta_C3', 'psd_theta_C3', 'psd_alfa_C3', 'psd_beta_C3', 'psd_gamma_C3',
                 'psd_delta_C4', 'psd_theta_C4', 'psd_alfa_C4', 'psd_beta_C4', 'psd_gamma_C4',
                 'psd_trecho']
-df_A_final = df_A_final[ordem_colunas]
-df_B_final = df_B_final[ordem_colunas]
+df_A_final = df_A_final[[col for col in ordem_colunas if col in df_A_final.columns]]
+df_B_final = df_B_final[[col for col in ordem_colunas if col in df_B_final.columns]]
+ordem_colunas_C = [c for c in ordem_colunas if c in df_C_final.columns] + [c for c in df_C_final.columns if c not in ordem_colunas]
+df_C_final = df_C_final[ordem_colunas_C]
 df_baseline = df_baseline[['ID','grupo','Trecho_eeg', 'psd_trecho','psd_delta_CZ', 'psd_theta_CZ', 'psd_alfa_CZ', 'psd_beta_CZ', 'psd_gamma_CZ',
                 'psd_delta_C3', 'psd_theta_C3', 'psd_alfa_C3', 'psd_beta_C3', 'psd_gamma_C3',
                 'psd_delta_C4', 'psd_theta_C4', 'psd_alfa_C4', 'psd_beta_C4', 'psd_gamma_C4',]]
