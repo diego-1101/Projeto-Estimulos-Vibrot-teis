@@ -1421,6 +1421,9 @@ df_A['Similaridade'] = df_protA['Similaridade']
 df_B['Acuracia'] = df_protB['Acuracia']
 df_B['Especificidade'] = df_protB['Especificidade']
 df_B['Similaridade'] = df_protB['Similaridade']
+df_C['Acuracia'] =[c for c in df_protC[df_protC['Fase']== 'Fase Execucao']["Acuracia"]]
+df_C['Similaridade'] = [c for c in df_protC[df_protC['Fase']== 'Fase Execucao']["Similaridade"]]
+df_C['Especificidade'] = [c for c in 1 - df_protC[df_protC['Fase']== 'Fase Execucao']["Taxa de Falsos Positivos"]]
 
 # Removendo as que deram problemas 
 erro_A = df_A[df_A['_trecho_info']!='ok']['ID'].unique()
@@ -1641,6 +1644,8 @@ relacoes_B = {
     'CF': 'Baseline OF',
     'SF': 'Baseline OF'
 }
+relacao_C = 'Baseline OA'
+
 def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
     #df_a_normalizar = df_A_final.copy()
     """
@@ -1697,10 +1702,17 @@ def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
     df_a_normalizar[cols_norm] = 0
     for idx, row in df_a_normalizar.iterrows():
         ind = row['ID']
-        grupo = relacoes[row['grupo']]
+        # Se o df não tiver coluna 'grupo', usa uma baseline fixa (passada em relacoes como string)
+        if 'grupo' in df_a_normalizar.columns:
+            grupo = relacoes[row['grupo']]
+        else:
+            grupo = relacoes  # aqui relacoes vira tipo: "Baseline OF" (string)
         cols = [c for c in df_a_normalizar.columns if (c.startswith('psd_')) & (c != 'psd_trecho') & (not c.startswith('psd_norm_'))]
         for col in cols:
-            mask = (df_baseline['ID'] == ind) & (df_baseline['grupo'] == grupo)
+            if 'grupo' in df_baseline.columns:
+                mask = (df_baseline['ID'] == ind) & (df_baseline['grupo'] == grupo)
+            else:
+                mask = (df_baseline['ID'] == ind)
             # valor da baseline 
             psd_baseline_trecho = df_baseline[mask][col].iloc[0]
             # valor da ser normalizado 
@@ -1713,7 +1725,9 @@ def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
 df_A_final = normalizar_bandas(df_a_normalizar= df_A_final, 
                                df_baseline= df_baseline, relacoes= relacoes_A)
 df_B_final = normalizar_bandas(df_a_normalizar= df_B_final, 
-                               df_baseline= df_baseline, relacoes= relacoes_B)          
+                               df_baseline= df_baseline, relacoes= relacoes_B)
+df_C_final = normalizar_bandas(df_a_normalizar= df_C_final, 
+                               df_baseline= df_baseline, relacoes= relacao_C)          
 
 #%% PLS Regression
 from sklearn.cross_decomposition import PLSRegression
