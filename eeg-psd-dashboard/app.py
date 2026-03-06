@@ -1,25 +1,90 @@
 import dash
 from dash import dcc, html, Input, Output, State, ALL
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
 
 # Import our modules
-from data_loader import load_and_preprocess_data
-from analysis_engine import compute_embedding
+from data_loader import load_data, build_X, build_Y
+from analysis_engine import compute_embeddings
 
-# Initialize Dash app
+# --- Globals & Setup ---
 app = dash.Dash(__name__, external_stylesheets=['https://bootswatch.com/5/flatly/bootstrap.min.css'])
 app.title = "EEG PSD Dashboard"
 
-# Data cache
 data_cache = {}
-
-# Theme state (global for simplicity)
 current_theme = 'light'
 
+# Define standard variables available for Y Checklist
+Y_VARIABLES = [
+    {'label': 'Desempenho', 'value': 'Desempenho'},
+    {'label': 'Acurácia', 'value': 'Acuracia'},
+    {'label': 'Similaridade', 'value': 'Similaridade'},
+    {'label': 'Especificidade', 'value': 'Especificidade'},
+    {'label': 'Proporção Espacial X', 'value': 'Proporção espacial x'},
+    {'label': 'Proporção Espacial Y', 'value': 'Proporção espacial y'},
+]
+
 # --- Helper Functions ---
+
+def build_supervision_labels(meta, protocol, color_by_mode):
+    """
+    Constructs the supervision labels categorically based on protocol limits.
+    If the requested mode is invalid for the given protocol, it falls back to
+    a safe default and indicates a warning.
+    """
+    labels = []
+    warning = False
+    mode = color_by_mode
+
+    # Verify Protocol A options (group, complexity, overlap, and combinations)
+    if protocol == 'A':
+        valid_modes = ['group', 'complexity', 'overlap', 'group_comp', 'group_overlap', 'comp_overlap', 'all']
+        if mode not in valid_modes:
+            mode = 'group'
+            warning = True
+
+    # Verify Protocol B options (group, complexity, group+complexity)
+    elif protocol == 'B':
+        valid_modes = ['group', 'complexity', 'group_comp']
+        if mode not in valid_modes:
+            mode = 'group'
+            warning = True
+
+    # Verify Protocol C options (complexity only; group=='ALL' exists but shouldn't be separated)
+    elif protocol == 'C':
+        valid_modes = ['complexity']
+        if mode not in valid_modes:
+            mode = 'complexity'
+            warning = True
+
+    # Assemble series
+    try:
+        if mode == 'group':
+            s = meta['grupo'].astype(str)
+        elif mode == 'complexity':
+            s = 'C' + meta['Complexidade'].astype(str)
+        elif mode == 'overlap':
+            s = 'O' + meta['Overlap'].astype(str)
+        elif mode == 'group_comp':
+            s = meta['grupo'].astype(str) + '_C' + meta['Complexidade'].astype(str)
+        elif mode == 'group_overlap':
+            s = meta['grupo'].astype(str) + '_O' + meta['Overlap'].astype(str)
+        elif mode == 'comp_overlap':
+            s = 'C' + meta['Complexidade'].astype(str) + '_O' + meta['Overlap'].astype(str)
+        elif mode == 'all':
+            s = meta['grupo'].astype(str) + '_C' + meta['Complexidade'].astype(str) + '_O' + meta['Overlap'].astype(str)
+        
+        labels = s.tolist()
+    except KeyError as e:
+        # Fallback if a column is miraculously missing
+        print(f"KeyError: {e}. Falling back to default Group coloring.")
+        labels = meta['grupo'].astype(str).tolist()
+        warning = True
+        
+    return labels, warning
 
 def create_analysis_controls(panel_id):
     """Create a set of analysis controls for a panel."""
@@ -38,45 +103,57 @@ def create_analysis_controls(panel_id):
             value='PCA',
             className="mb-3 dash-dropdown"
         ),
-        
-        html.Label("Covariance Mode", className="control-label"),
-        dcc.RadioItems(
-            id={'type': 'covariance-mode', 'index': panel_id},
+
+        html.Label("X (PSD Features)", className="control-label"),
+        dcc.Dropdown(
+            id={'type': 'x-mode-dropdown', 'index': panel_id},
             options=[
-                {'label': ' Auto-covariance', 'value': 'auto'},
-                {'label': ' Cross-covariance', 'value': 'cross'}
+                {'label': 'PSD trecho completo', 'value': 'psd_full'},
+                {'label': 'PSD estratificada por bandas', 'value': 'psd_bands'},
+                {'label': 'PSD estratificada (normalizada)', 'value': 'psd_bands_norm'}
             ],
-            value='auto',
-            className="mb-3"
+            value='psd_bands_norm',
+            className="mb-3 dash-dropdown"
+        ),
+
+        html.Label("Y (Behavioral Features)", className="control-label"),
+        dcc.Checklist(
+            id={'type': 'y-checklist', 'index': panel_id},
+            options=Y_VARIABLES,
+            value=['Desempenho'],
+            className="mb-3 list-style-none",
+            inline=False,
+            labelStyle={'display': 'block', 'marginBottom': '5px'}
         ),
         
-        html.Label("Data Domain", className="control-label"),
+        html.Label("Data Domain (Axes mapping)", className="control-label"),
         dcc.Dropdown(
             id={'type': 'domain-dropdown', 'index': panel_id},
             options=[
-                {'label': 'PSD Features', 'value': 'psd'},
-                {'label': 'Behavioral', 'value': 'bx'}
+                {'label': 'X Only (PSD)', 'value': 'x'},
+                {'label': 'Y Only (Behavior)', 'value': 'y'},
+                {'label': 'Both (Mix Axes)', 'value': 'both'}
             ],
-            value='psd',
+            value='x',
             className="mb-3 dash-dropdown"
         ),
         
-        html.Label("Dimensions", className="control-label"),
-        dcc.RadioItems(
-            id={'type': 'dimensions-radio', 'index': panel_id},
-            options=[
-                {'label': ' 2D', 'value': 2},
-                {'label': ' 3D', 'value': 3}
-            ],
-            value=2,
-            className="mb-3"
-        ),
-
+        html.Div(id={'type': 'mixed-axes-container', 'index': panel_id}, className="mb-3", style={'display': 'none'}, children=[
+            html.Label("Axis 1:", className="control-label"),
+            dcc.Dropdown(id={'type': 'axis-select', 'index': panel_id, 'axis': 1}, className="mb-2 dash-dropdown"),
+            html.Label("Axis 2:", className="control-label"),
+            dcc.Dropdown(id={'type': 'axis-select', 'index': panel_id, 'axis': 2}, className="mb-2 dash-dropdown"),
+            html.Div(id={'type': 'axis3-container', 'index': panel_id}, style={'display': 'none'}, children=[
+                 html.Label("Axis 3:", className="control-label"),
+                 dcc.Dropdown(id={'type': 'axis-select', 'index': panel_id, 'axis': 3}, className="mb-2 dash-dropdown"),
+            ])
+        ]),
+        
         html.Label("Color By", className="control-label"),
         dcc.Dropdown(
             id={'type': 'color-dropdown', 'index': panel_id},
             options=[
-                {'label': 'Group (CV/SV)', 'value': 'group'},
+                {'label': 'Group (CV/SV/CF/SF)', 'value': 'group'},
                 {'label': 'Complexity', 'value': 'complexity'},
                 {'label': 'Overlap (Prot A)', 'value': 'overlap'},
                 {'label': 'Group + Complexity', 'value': 'group_comp'},
@@ -89,83 +166,118 @@ def create_analysis_controls(panel_id):
         ),
     ], className="comparison-panel mb-3" if panel_id == 2 else "mb-3")
 
-def run_single_analysis(protocol, method, cov_mode, domain, n_dims, theme='light', color_by='group'):
+def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, theme='light', color_by='group'):
     """Run analysis and return figure, stats."""
     try:
+        # Load caching
         if protocol not in data_cache:
-            X_psd, X_bx, meta, feature_names = load_and_preprocess_data(protocol=protocol)
-            data_cache[protocol] = (X_psd, X_bx, meta, feature_names)
-        
-        X_psd, X_bx, meta, feature_names = data_cache[protocol]
-        X = X_psd if domain == 'psd' else X_bx
-        Y_labels = meta['grupo']
-        Y_continuous = X_bx if cov_mode == 'cross' else None
-        
-        embedding, stats = compute_embedding(
-            X=X, Y_labels=Y_labels, Y_continuous=Y_continuous,
-            method=method, covariance_mode=cov_mode, n_components=n_dims
-        )
-        
-        plot_df = pd.concat([embedding, meta.reset_index(drop=True)], axis=1)
-        
-        # --- Coloring Logic ---
-        # Ensure columns exist before using them (handle missing data gracefully)
-        has_complex = 'Complexidade' in plot_df.columns
-        has_overlap = 'Overlap' in plot_df.columns
-        
-        if color_by == 'complexity' and has_complex:
-            plot_df['color_label'] = plot_df['Complexidade'].astype(str)
-            title_suffix = "Complexity"
-        elif color_by == 'overlap' and has_overlap:
-            plot_df['color_label'] = plot_df['Overlap'].astype(str)
-            title_suffix = "Overlap"
-        elif color_by == 'group_comp' and has_complex:
-            plot_df['color_label'] = plot_df['grupo'] + '_C' + plot_df['Complexidade'].astype(str)
-            title_suffix = "Group + Complexity"
-        elif color_by == 'group_overlap' and has_overlap:
-            plot_df['color_label'] = plot_df['grupo'] + '_O' + plot_df['Overlap'].astype(str)
-            title_suffix = "Group + Overlap"
-        elif color_by == 'comp_overlap' and has_complex and has_overlap:
-            plot_df['color_label'] = 'C' + plot_df['Complexidade'].astype(str) + '_O' + plot_df['Overlap'].astype(str)
-            title_suffix = "Complexity + Overlap"
-        elif color_by == 'all' and has_complex and has_overlap:
-            plot_df['color_label'] = plot_df['grupo'] + '_C' + plot_df['Complexidade'].astype(str) + '_O' + plot_df['Overlap'].astype(str)
-            title_suffix = "All Factors"
+            df, meta = load_data(protocol=protocol)
+            data_cache[protocol] = (df, meta)
         else:
-            # Default to group or fallback
-            plot_df['color_label'] = plot_df['grupo']
-            title_suffix = "Group"
-            if color_by != 'group':
-                title_suffix += " (Data Warning)"
+            df, meta = data_cache[protocol]
 
-        # Define hover columns properly
+        # Validations before continuing
+        if not y_cols:
+            raise ValueError("Please select at least one Y variable from the checklist.")
+
+        # Build feature matrices
+        X = build_X(df, x_mode)
+        Y = build_Y(df, y_cols)
+        
+        # Build supervision labels
+        labels_arr, had_warning = build_supervision_labels(meta, protocol, color_by)
+
+        # Compute Embeddings
+        X_scores, Y_scores, stats = compute_embeddings(X, Y, labels_arr, method, max(3, n_dims))
+        
+        # Build Plot Coordinates
+        coords_df = pd.DataFrame(index=X.index)
+        axis_names = []
+        
+        if domain == 'x':
+             if X_scores is not None and not X_scores.empty:
+                 cols_to_use = min(n_dims, X_scores.shape[1])
+                 for i in range(cols_to_use):
+                     axis_name = f"{method} {i+1} (X)"
+                     coords_df[axis_name] = X_scores.iloc[:, i]
+                     axis_names.append(axis_name)
+                 while len(coords_df.columns) < n_dims:
+                     axis_name = f"Empty {len(coords_df.columns)+1}"
+                     coords_df[axis_name] = 0
+                     axis_names.append(axis_name)
+             else:
+                 raise ValueError(f"No valid X embedding formed for method {method}.")
+                 
+        elif domain == 'y':
+             if Y_scores is not None and not Y_scores.empty:
+                 cols_to_use = min(n_dims, Y_scores.shape[1])
+                 for i in range(cols_to_use):
+                     axis_name = f"{method} {i+1} (Y)"
+                     coords_df[axis_name] = Y_scores.iloc[:, i]
+                     axis_names.append(axis_name)
+                 while len(coords_df.columns) < n_dims:
+                     axis_name = f"Empty {len(coords_df.columns)+1}"
+                     coords_df[axis_name] = 0
+                     axis_names.append(axis_name)
+             else:
+                 raise ValueError(f"No valid Y embedding formed for method {method}.")
+                 
+        elif domain == 'both':
+             for d in range(n_dims):
+                 # default map if no axis list supplied
+                 axis_sel = axes[d] if axes and len(axes) > d and axes[d] else None
+                 val = 0
+                 if axis_sel:
+                      parts = axis_sel.split('_') # e.g. "C1_X"
+                      comp_idx = int(parts[0].replace('C', '')) - 1
+                      source = parts[1]
+                      
+                      if source == 'X' and X_scores is not None and comp_idx < X_scores.shape[1]:
+                          val = X_scores.iloc[:, comp_idx]
+                      elif source == 'Y' and Y_scores is not None and comp_idx < Y_scores.shape[1]:
+                          val = Y_scores.iloc[:, comp_idx]
+                          
+                 axis_name = axis_sel.replace('_', ' of ') if axis_sel else f"Dim{d+1}"
+                 coords_df[axis_name] = val
+                 axis_names.append(axis_name)
+                 
+        # Combine coords with meta for plotting
+        plot_df = pd.concat([coords_df, meta], axis=1)
+        plot_df['color_label'] = labels_arr
+        
+        title_suffix = f"{color_by.capitalize()}" + (" (Warning)" if had_warning else "")
+
+        # Base Hover Configs
         hover_cols = ['ID', 'grupo']
-        if has_complex: hover_cols.append('Complexidade')
-        if has_overlap: hover_cols.append('Overlap')
+        # Dynamically add info what's available
+        if 'Complexidade' in meta.columns: hover_cols.append('Complexidade')
+        if 'Overlap' in meta.columns: hover_cols.append('Overlap')
+        for yc in y_cols:
+             target_raw = f"raw_{yc}"
+             if target_raw in meta.columns:
+                 hover_cols.append(target_raw)
 
-        # Colors: We drop specific map to allow Plotly to assign distinct colors for many categories
-        # But we keep specific map for simple Group case
+        # Plot definitions
         color_map = None
-        if color_by == 'group':
+        if color_by == 'group' and protocol in ['A', 'B']:
             color_map = {'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'}
+            
+        params = {
+             'color': 'color_label',
+             'hover_data': hover_cols,
+             'title': f"{method} - {domain.upper()} - {title_suffix}"
+        }
+        if color_map:
+             params['color_discrete_map'] = color_map
 
         if n_dims == 2:
-            fig = px.scatter(
-                plot_df, x='C1', y='C2', color='color_label',
-                hover_data=hover_cols,
-                color_discrete_map=color_map,
-                title=f"{method} - {cov_mode} - {domain} - {title_suffix}"
-            )
+            fig = px.scatter(plot_df, x=axis_names[0], y=axis_names[1], **params)
             fig.update_traces(marker=dict(size=10, line=dict(width=1, color='white')))
         else:
-            fig = px.scatter_3d(
-                plot_df, x='C1', y='C2', z='C3', color='color_label',
-                hover_data=hover_cols,
-                color_discrete_map=color_map,
-                title=f"{method} - {cov_mode} - {domain} - {title_suffix}"
-            )
+            fig = px.scatter_3d(plot_df, x=axis_names[0], y=axis_names[1], z=axis_names[2], **params)
             fig.update_traces(marker=dict(size=6))
         
+        # Theme
         if theme == 'dark':
             fig.update_layout(
                 template='plotly_dark',
@@ -176,17 +288,30 @@ def run_single_analysis(protocol, method, cov_mode, domain, n_dims, theme='light
         else:
             fig.update_layout(template='plotly_white')
         
+        # Format Stats Panel
         stats_content = []
-        if 'explained_variance' in stats:
-            var_text = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['explained_variance'])])
-            stats_content.append(html.P([html.Strong("Variance: "), var_text]))
-        if 'canonical_correlations' in stats:
-            corr_text = ", ".join([f"r{i+1}: {c:.3f}" for i, c in enumerate(stats['canonical_correlations'])])
-            stats_content.append(html.P([html.Strong("Correlations: "), corr_text]))
         
-        return fig, html.Div(stats_content or "No stats")
+        if 'X_explained_variance' in stats:
+             var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['X_explained_variance'])])
+             stats_content.append(html.P([html.Strong("X Var: "), var_txt]))
+        if 'Y_explained_variance' in stats:
+             var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['Y_explained_variance'])])
+             stats_content.append(html.P([html.Strong("Y Var: "), var_txt]))
+        if 'canonical_correlations' in stats:
+             corr_txt = ", ".join([f"r{i+1}: {c:.3f}" for i, c in enumerate(stats['canonical_correlations'])])
+             stats_content.append(html.P([html.Strong("Canonical Corrs: "), corr_txt]))
+             
+        if 'CDA_X' in stats:
+             cdx = stats['CDA_X']
+             chisqs = ", ".join([f"{c:.1f}" for c in cdx['chisq']])
+             stats_content.append(html.P([html.Strong("CDA X Ext. Dims: "), str(cdx['d'])]))
+             stats_content.append(html.P([html.Strong("CDA X ChiSqs: "), chisqs]))
+
+        return fig, html.Div(stats_content or "No stats evaluated")
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         error_fig = go.Figure()
         error_fig.update_layout(title=f"Error: {str(e)}")
         return error_fig, html.Div(f"Error: {str(e)}")
@@ -199,7 +324,7 @@ app.layout = html.Div([
     
     html.Div([
         html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
-        html.H5("Multivariate Analysis", className="text-muted mb-4"),
+        html.H5("v2 Multivariate Analysis", className="text-muted mb-4"),
         html.Hr(),
         
         html.Label("Protocol", className="control-label"),
@@ -207,10 +332,22 @@ app.layout = html.Div([
             id='protocol-dropdown',
             options=[
                 {'label': 'Protocol A', 'value': 'A'},
-                {'label': 'Protocol B', 'value': 'B'}
+                {'label': 'Protocol B', 'value': 'B'},
+                {'label': 'Protocol C', 'value': 'C'}
             ],
             value='A',
             className="mb-3 dash-dropdown"
+        ),
+        
+        html.Label("Dimensions", className="control-label"),
+        dcc.RadioItems(
+            id='global-dimensions-radio',
+            options=[
+                {'label': ' 2D', 'value': 2},
+                {'label': ' 3D', 'value': 3}
+            ],
+            value=2,
+            className="mb-3"
         ),
         
         html.Hr(),
@@ -267,7 +404,6 @@ def toggle_theme(n, theme):
     new = 'dark' if theme == 'light' else 'light'
     return new, '☀️' if new == 'dark' else '🌙'
 
-# Clientside callback to apply theme to body
 app.clientside_callback(
     """
     function(theme) {
@@ -295,38 +431,82 @@ def toggle_comparison(enabled):
         return create_analysis_controls(2), {'display': 'none'}, {'display': 'block'}
     return html.Div(), {'display': 'block'}, {'display': 'none'}
 
+# Mixed Axes UI Visibility Callback
 @app.callback(
-    Output({'type': 'domain-dropdown', 'index': ALL}, 'disabled'),
-    [Input({'type': 'covariance-mode', 'index': ALL}, 'value'),
-     Input({'type': 'method-dropdown', 'index': ALL}, 'value')]
+    [Output({'type': 'mixed-axes-container', 'index': ALL}, 'style'),
+     Output({'type': 'axis3-container', 'index': ALL}, 'style')],
+    [Input({'type': 'domain-dropdown', 'index': ALL}, 'value'),
+     Input('global-dimensions-radio', 'value')]
 )
-def disable_domains(covs, methods):
-    return [c == 'cross' and m in ['PLS', 'CDA'] for c, m in zip(covs, methods)]
+def update_axis_selector_visibility(domains, dims):
+    visibles_container = [{'display': 'block'} if d == 'both' else {'display': 'none'} for d in domains]
+    visibles_3d = [{'display': 'block'} if (d == 'both' and dims == 3) else {'display': 'none'} for d in domains]
+    return visibles_container, visibles_3d
+
+# Options Populater for Mixed Axes
+@app.callback(
+     [Output({'type': 'axis-select', 'index': ALL, 'axis': 1}, 'options'),
+      Output({'type': 'axis-select', 'index': ALL, 'axis': 2}, 'options'),
+      Output({'type': 'axis-select', 'index': ALL, 'axis': 3}, 'options'),
+      Output({'type': 'axis-select', 'index': ALL, 'axis': 1}, 'value'),
+      Output({'type': 'axis-select', 'index': ALL, 'axis': 2}, 'value'),
+      Output({'type': 'axis-select', 'index': ALL, 'axis': 3}, 'value')],
+     [Input('protocol-dropdown', 'value'),
+      Input({'type': 'domain-dropdown', 'index': ALL}, 'value')] # simple triggers
+)
+def options_axis_selectors(protocol, domains):
+     # Provide a static, safe set of maximum options since actual component 
+     # dimension is deferred to the analysis compute phase.
+     # User instruction: "cada eixo permite escolher: C1 de X, C2 de X... C1 de Y..."
+     opts = [
+         {'label': 'C1 (X)', 'value': 'C1_X'},
+         {'label': 'C2 (X)', 'value': 'C2_X'},
+         {'label': 'C3 (X)', 'value': 'C3_X'},
+         {'label': 'C1 (Y)', 'value': 'C1_Y'},
+         {'label': 'C2 (Y)', 'value': 'C2_Y'},
+         {'label': 'C3 (Y)', 'value': 'C3_Y'},
+     ]
+     
+     opt1 = [opts for _ in domains]
+     opt2 = [opts for _ in domains]
+     opt3 = [opts for _ in domains]
+     
+     val1 = ['C1_X' for _ in domains]
+     val2 = ['C2_X' for _ in domains]
+     val3 = ['C1_Y' for _ in domains]
+
+     return opt1, opt2, opt3, val1, val2, val3
 
 @app.callback(
     [Output('plot-1', 'figure'), Output('stats-1', 'children'), Output('info-panel', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
      State({'type': 'method-dropdown', 'index': 1}, 'value'),
-     State({'type': 'covariance-mode', 'index': 1}, 'value'),
+     State({'type': 'x-mode-dropdown', 'index': 1}, 'value'),
+     State({'type': 'y-checklist', 'index': 1}, 'value'),
      State({'type': 'domain-dropdown', 'index': 1}, 'value'),
-     State({'type': 'dimensions-radio', 'index': 1}, 'value'),
+     State('global-dimensions-radio', 'value'),
      State({'type': 'color-dropdown', 'index': 1}, 'value'),
      State('theme-store', 'data'),
-     State('comparison-toggle', 'value')],
+     State('comparison-toggle', 'value'),
+     State({'type': 'axis-select', 'index': 1, 'axis': 1}, 'value'),
+     State({'type': 'axis-select', 'index': 1, 'axis': 2}, 'value'),
+     State({'type': 'axis-select', 'index': 1, 'axis': 3}, 'value')],
     prevent_initial_call=True
 )
-def update_single(n, prot, meth, cov, dom, dims, color, theme, comp):
+def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, theme, comp, ax1, ax2, ax3):
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
         return fig, "No data", html.P("Ready")
     
-    fig, stats = run_single_analysis(prot, meth, cov, dom, dims, theme, color)
+    axes = [ax1, ax2, ax3]
+    fig, stats = run_single_analysis(prot, meth, x_mode, y_cols, dom, axes, dims, theme, color)
+    
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
-        html.P([html.Strong("Method: "), meth]),
-        html.P([html.Strong("Color By: "), color])
+        html.P([html.Strong("Method: "), meth[0]]),
+        html.P([html.Strong("Domain Mode: "), dom[0]]),
     ])
     return fig, stats, info
 
@@ -336,15 +516,19 @@ def update_single(n, prot, meth, cov, dom, dims, color, theme, comp):
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
      State({'type': 'method-dropdown', 'index': ALL}, 'value'),
-     State({'type': 'covariance-mode', 'index': ALL}, 'value'),
+     State({'type': 'x-mode-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'y-checklist', 'index': ALL}, 'value'),
      State({'type': 'domain-dropdown', 'index': ALL}, 'value'),
-     State({'type': 'dimensions-radio', 'index': ALL}, 'value'),
+     State('global-dimensions-radio', 'value'),
      State({'type': 'color-dropdown', 'index': ALL}, 'value'),
      State('theme-store', 'data'),
-     State('comparison-toggle', 'value')],
+     State('comparison-toggle', 'value'),
+     State({'type': 'axis-select', 'index': ALL, 'axis': 1}, 'value'),
+     State({'type': 'axis-select', 'index': ALL, 'axis': 2}, 'value'),
+     State({'type': 'axis-select', 'index': ALL, 'axis': 3}, 'value')],
     prevent_initial_call=True
 )
-def update_comparison(n, prot, methods, covs, doms, dims, colors, theme, comp):
+def update_comparison(n, prot, methods, x_modes, y_cols_lists, doms, dims, colors, theme, comp, ax1s, ax2s, ax3s):
     fig = go.Figure()
     fig.update_layout(title="Enable comparison mode")
     
@@ -352,12 +536,17 @@ def update_comparison(n, prot, methods, covs, doms, dims, colors, theme, comp):
         return fig, "No data", fig, "No data"
     
     # Analysis 1
-    m1, c1, d1, dim1, col1 = methods[0], covs[0], doms[0], dims[0], colors[0]
-    # Analysis 2
-    m2, c2, d2, dim2, col2 = methods[1], covs[1], doms[1], dims[1], colors[1]
+    axes1 = [a[0] if len(a)>0 else None for a in [ax1s, ax2s, ax3s]]
+    fig1, stats1 = run_single_analysis(
+        prot, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0]
+    )
     
-    fig1, stats1 = run_single_analysis(prot, m1, c1, d1, dim1, theme, col1)
-    fig2, stats2 = run_single_analysis(prot, m2, c2, d2, dim2, theme, col2)
+    # Analysis 2
+    axes2 = [a[1] if len(a)>1 else None for a in [ax1s, ax2s, ax3s]]
+    fig2, stats2 = run_single_analysis(
+        prot, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1]
+    )
+    
     return fig1, stats1, fig2, stats2
 
 # Expose server for Vercel
