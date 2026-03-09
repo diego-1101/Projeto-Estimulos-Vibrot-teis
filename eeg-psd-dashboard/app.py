@@ -394,7 +394,12 @@ app.layout = html.Div([
         html.Div(id='controls-1', children=create_analysis_controls(1)),
         html.Div(id='controls-2-container'),
         
-        html.Button("Run Analysis", id='run-btn', className="btn btn-primary w-100 mt-3"),
+        html.Details([
+            html.Summary("📐 Display Mathematical Model", style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#0d6efd', 'marginBottom': '15px'}),
+            html.Div(id='math-model-container', className="card p-3 mb-3", style={'backgroundColor': '#f8f9fa', 'overflowX': 'auto', 'fontSize': '0.9em'})
+        ], className="mb-3"),
+        
+        html.Button("Run Analysis", id='run-btn', className="btn btn-primary w-100 mt-2"),
         html.Hr(),
         html.Div(id='info-panel', className="card p-3 mt-3")
         
@@ -437,6 +442,63 @@ app.layout = html.Div([
 ])
 
 # --- Callbacks ---
+
+@app.callback(
+    Output('math-model-container', 'children'),
+    [Input('protocol-dropdown', 'value'),
+     Input({'type': 'x-mode-dropdown', 'index': 1}, 'value'),
+     Input({'type': 'y-checklist', 'index': 1}, 'value')]
+)
+def update_math_model(prot, x_mode, y_cols):
+    try:
+        # Load caching internally so it doesn't freeze the UI
+        if prot not in data_cache:
+            df, meta = load_data(protocol=prot)
+            data_cache[prot] = (df, meta)
+        else:
+            df, meta = data_cache[prot]
+            
+        if not y_cols:
+            y_cols = ['Desempenho']
+            
+        X = build_X(df, x_mode)
+        Y = build_Y(df, y_cols)
+        
+        T = X.shape[0] if not X.empty else "T"
+        F = X.shape[1] if not X.empty else "F"
+        C = Y.shape[1] if not Y.empty else 1
+        
+        math_str = rf'''
+$$
+X = \begin{{bmatrix}}
+x_{{1,1}} & x_{{1,2}} & \dots & x_{{1,{F}}} \\
+x_{{2,1}} & x_{{2,2}} & \dots & x_{{2,{F}}} \\
+\vdots & \vdots & \ddots & \vdots \\
+x_{{{T},1}} & x_{{{T},2}} & \dots & x_{{{T},{F}}}
+\end{{bmatrix}} \in \mathbb{{R}}^{{{T} \times {F}}}
+$$
+
+$$
+Y = \begin{{bmatrix}}
+y_{{1,1}} & \dots & y_{{1,{C}}} \\
+y_{{2,1}} & \dots & y_{{2,{C}}} \\
+\vdots & \ddots & \vdots \\
+y_{{{T},1}} & \dots & y_{{{T},{C}}}
+\end{{bmatrix}} \in \mathbb{{R}}^{{{T} \times {C}}}
+$$
+
+**Onde:**
+* **T = {T}**: Número total de *trials* analisados do protocolo {prot}.
+* **F = {F}**: Número de *features* em $X$ (modo: {x_mode}).
+* **C = {C}**: Variáveis comportamentais integradas em $Y$.
+* $x_{{ij}}$ = valor oriundo no espaço PSD na banda/frequência *j* da execução *i*.
+* $y_{{ic}}$ = escore medido na target *c* da execução *i*.
+'''
+        return dcc.Markdown(math_str, mathjax=True)
+    except Exception as e:
+        return html.Div(f"Model rendering offline: {str(e)}", className="text-danger")
+
+
 
 @app.callback(
     [Output('theme-store', 'data'), Output('theme-toggle', 'children')],
