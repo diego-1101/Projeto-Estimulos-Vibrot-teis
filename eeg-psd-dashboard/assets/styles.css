@@ -290,3 +290,39 @@ body.dark-mode input[type="radio"] {
 body.dark-mode .comparison-panel {
     border-color: #4fc3f7;
 }
+
+/* Quick Guide Modal */
+.modal-content-wrapper {
+    background-color: #ffffff !important;
+    color: #2c3e50 !important;
+}
+
+body.dark-mode .modal-content-wrapper {
+    background-color: #2d2d2d !important;
+    color: #e0e0e0 !important;
+    border: 1px solid #404040 !important;
+}
+
+body.dark-mode .modal-header {
+    background-color: #1a1a1a !important;
+    border-bottom: 1px solid #404040 !important;
+    color: #4fc3f7 !important;
+}
+
+body.dark-mode .modal-body {
+    background-color: #2d2d2d !important;
+}
+
+/* Fix text colors inside the Markdown render for Dark Mode */
+body.dark-mode .modal-body h1, 
+body.dark-mode .modal-body h2, 
+body.dark-mode .modal-body h3, 
+body.dark-mode .modal-body h4, 
+body.dark-mode .modal-body h5 {
+    color: #4fc3f7 !important;
+}
+
+body.dark-mode .modal-body p, 
+body.dark-mode .modal-body li {
+    color: #e0e0e0 !important;
+}

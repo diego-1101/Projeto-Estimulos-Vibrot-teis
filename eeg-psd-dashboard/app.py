@@ -10,6 +10,14 @@ import numpy as np
 from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
 from anova_engine import compute_anova_and_plot
+import os
+
+# Load Quick Guide Content
+try:
+    with open('QUICK_GUIDE.md', 'r', encoding='utf-8') as f:
+        quick_guide_content = f.read()
+except FileNotFoundError:
+    quick_guide_content = "Quick Guide not found. Please ensure QUICK_GUIDE.md is in the project root."
 
 # --- Globals & Setup ---
 app = dash.Dash(__name__, external_stylesheets=['https://bootswatch.com/5/flatly/bootstrap.min.css'])
@@ -348,9 +356,34 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
 
 # --- Layout ---
 app.layout = html.Div([
-    html.Button("🌙", id='theme-toggle', className='theme-toggle', n_clicks=0),
+    # Top Header Controls
+    html.Div([
+        html.Button("🌙", id='theme-toggle', className='theme-toggle', n_clicks=0),
+    ], style={'position': 'absolute', 'top': '15px', 'right': '20px', 'zIndex': 1000}),
+    
     dcc.Store(id='theme-store', data='light'),
     html.Div(id='theme-injector', style={'display': 'none'}),
+    
+    # Quick Guide Modal Overlay
+    html.Div(id='quick-guide-modal', style={'display': 'none'}, children=[
+        html.Div(className='modal-backdrop', style={
+            'position': 'fixed', 'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh',
+            'backgroundColor': 'rgba(0, 0, 0, 0.7)', 'zIndex': 1040
+        }),
+        html.Div(className='modal-content-wrapper', style={
+            'position': 'fixed', 'top': '5vh', 'left': '10vw', 'width': '80vw', 'height': '90vh',
+            'zIndex': 1050, 'backgroundColor': 'inherit', 'borderRadius': '10px', 'boxShadow': '0 4px 20px rgba(0,0,0,0.5)',
+            'display': 'flex', 'flexDirection': 'column', 'overflow': 'hidden'
+        }, children=[
+            html.Div(className='modal-header card-header d-flex justify-content-between align-items-center', style={'padding': '15px'}, children=[
+                html.H4("📖 Guia Rápido e Metodológico", className='m-0'),
+                html.Button("✖ Fechar", id='close-guide-btn', className='btn btn-danger btn-sm')
+            ]),
+            html.Div(className='modal-body card-body', style={'overflowY': 'auto', 'padding': '30px'}, children=[
+                dcc.Markdown(quick_guide_content, mathjax=True)
+            ])
+        ])
+    ]),
     
     html.Div([
         html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
@@ -407,7 +440,12 @@ app.layout = html.Div([
     
     html.Div([
         html.Div(id='single-view', children=[
-            html.Div([dcc.Graph(id='plot-1', style={'height': '600px'})], className="card mb-3"),
+            html.Div([
+                html.Div([
+                    html.Button("📖 Quick Guide", id='open-guide-btn', className='btn btn-sm btn-outline-info')
+                ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
+                dcc.Graph(id='plot-1', style={'height': '600px'})
+            ], className="card mb-3", style={'position': 'relative'}),
             html.Div([html.H4("Statistics"), html.Div(id='stats-1')], className="card mb-3"),
             html.Div([
                 html.H4("ANOVA Test"),
@@ -419,7 +457,12 @@ app.layout = html.Div([
         html.Div(id='comparison-view', style={'display': 'none'}, children=[
             html.Div(className="comparison-container", children=[
                 html.Div([
-                    html.Div([dcc.Graph(id='plot-left', style={'height': '500px'})], className="card mb-3"),
+                    html.Div([
+                        html.Div([
+                            html.Button("📖 Quick Guide", id='open-guide-btn-left', className='btn btn-sm btn-outline-info')
+                        ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
+                        dcc.Graph(id='plot-left', style={'height': '500px'})
+                    ], className="card mb-3", style={'position': 'relative'}),
                     html.Div([html.H5("Stats 1"), html.Div(id='stats-left')], className="card mt-3 mb-3"),
                     html.Div([
                         html.H5("ANOVA 1"),
@@ -428,7 +471,12 @@ app.layout = html.Div([
                     ], className="card")
                 ]),
                 html.Div([
-                    html.Div([dcc.Graph(id='plot-right', style={'height': '500px'})], className="card mb-3"),
+                    html.Div([
+                        html.Div([
+                            html.Button("📖 Quick Guide", id='open-guide-btn-right', className='btn btn-sm btn-outline-info')
+                        ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
+                        dcc.Graph(id='plot-right', style={'height': '500px'})
+                    ], className="card mb-3", style={'position': 'relative'}),
                     html.Div([html.H5("Stats 2"), html.Div(id='stats-right')], className="card mt-3 mb-3"),
                     html.Div([
                         html.H5("ANOVA 2"),
@@ -442,6 +490,28 @@ app.layout = html.Div([
 ])
 
 # --- Callbacks ---
+
+@app.callback(
+    Output('quick-guide-modal', 'style'),
+    [Input('open-guide-btn', 'n_clicks'),
+     Input('open-guide-btn-left', 'n_clicks'),
+     Input('open-guide-btn-right', 'n_clicks'),
+     Input('close-guide-btn', 'n_clicks')],
+    State('quick-guide-modal', 'style'),
+    prevent_initial_call=True
+)
+def toggle_quick_guide(btn1, btn2, btn3, close_clicks, current_style):
+    from dash import ctx
+    if not ctx.triggered:
+        return {'display': 'none'}
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if trigger_id in ['open-guide-btn', 'open-guide-btn-left', 'open-guide-btn-right']:
+        return {'display': 'block'}
+    elif trigger_id == 'close-guide-btn':
+        return {'display': 'none'}
+    return current_style
 
 @app.callback(
     Output('math-model-container', 'children'),
