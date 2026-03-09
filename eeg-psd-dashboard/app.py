@@ -9,6 +9,7 @@ import numpy as np
 # Import our modules
 from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
+from anova_engine import compute_anova_and_plot
 
 # --- Globals & Setup ---
 app = dash.Dash(__name__, external_stylesheets=['https://bootswatch.com/5/flatly/bootstrap.min.css'])
@@ -62,29 +63,45 @@ def build_supervision_labels(meta, protocol, color_by_mode):
 
     # Assemble series
     try:
-        if mode == 'group':
-            s = meta['grupo'].astype(str)
-        elif mode == 'complexity':
-            s = 'C' + meta['Complexidade'].astype(str)
-        elif mode == 'overlap':
-            s = 'O' + meta['Overlap'].astype(str)
-        elif mode == 'group_comp':
-            s = meta['grupo'].astype(str) + '_C' + meta['Complexidade'].astype(str)
-        elif mode == 'group_overlap':
-            s = meta['grupo'].astype(str) + '_O' + meta['Overlap'].astype(str)
-        elif mode == 'comp_overlap':
-            s = 'C' + meta['Complexidade'].astype(str) + '_O' + meta['Overlap'].astype(str)
-        elif mode == 'all':
-            s = meta['grupo'].astype(str) + '_C' + meta['Complexidade'].astype(str) + '_O' + meta['Overlap'].astype(str)
+        color_s = meta['grupo'].astype(str)
+        symbol_s = meta['grupo'].astype(str)
         
-        labels = s.tolist()
+        # Safe getters 
+        comp = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+        over = meta.get('Overlap', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+        
+        if mode == 'group':
+            color_s = meta['grupo'].astype(str)
+            symbol_s = color_s
+        elif mode == 'complexity':
+            color_s = 'C' + comp
+            symbol_s = color_s
+        elif mode == 'overlap':
+            color_s = 'O' + over
+            symbol_s = color_s
+        elif mode == 'group_comp':
+            color_s = meta['grupo'].astype(str)
+            symbol_s = 'C' + comp
+        elif mode == 'group_overlap':
+            color_s = meta['grupo'].astype(str)
+            symbol_s = 'O' + over
+        elif mode == 'comp_overlap':
+            color_s = 'C' + comp
+            symbol_s = 'O' + over
+        elif mode == 'all':
+            color_s = meta['grupo'].astype(str) + '_C' + comp
+            symbol_s = 'O' + over
+        
+        color_labels = color_s.tolist()
+        symbol_labels = symbol_s.tolist()
     except KeyError as e:
         # Fallback if a column is miraculously missing
         print(f"KeyError: {e}. Falling back to default Group coloring.")
-        labels = meta['grupo'].astype(str).tolist()
+        color_labels = meta['grupo'].astype(str).tolist()
+        symbol_labels = color_labels
         warning = True
         
-    return labels, warning
+    return color_labels, symbol_labels, warning
 
 def create_analysis_controls(panel_id):
     """Create a set of analysis controls for a panel."""
@@ -164,6 +181,17 @@ def create_analysis_controls(panel_id):
             value='group',
             className="mb-3 dash-dropdown"
         ),
+        
+        html.Hr(),
+        
+        html.Label("ANOVA Target", className="control-label"),
+        dcc.Dropdown(
+            id={'type': 'anova-target', 'index': panel_id},
+            options=Y_VARIABLES,
+            value=Y_VARIABLES[0]['value'],
+            placeholder="Select variable to test...",
+            className="mb-3 dash-dropdown"
+        ),
     ], className="comparison-panel mb-3" if panel_id == 2 else "mb-3")
 
 def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, theme='light', color_by='group'):
@@ -185,10 +213,10 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
         Y = build_Y(df, y_cols)
         
         # Build supervision labels
-        labels_arr, had_warning = build_supervision_labels(meta, protocol, color_by)
+        color_labels, symbol_labels, had_warning = build_supervision_labels(meta, protocol, color_by)
 
         # Compute Embeddings
-        X_scores, Y_scores, stats = compute_embeddings(X, Y, labels_arr, method, max(3, n_dims))
+        X_scores, Y_scores, stats = compute_embeddings(X, Y, color_labels, method, max(3, n_dims))
         
         # Build Plot Coordinates
         coords_df = pd.DataFrame(index=X.index)
@@ -243,7 +271,8 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
                  
         # Combine coords with meta for plotting
         plot_df = pd.concat([coords_df, meta], axis=1)
-        plot_df['color_label'] = labels_arr
+        plot_df['color_label'] = color_labels
+        plot_df['symbol_label'] = symbol_labels
         
         title_suffix = f"{color_by.capitalize()}" + (" (Warning)" if had_warning else "")
 
@@ -264,6 +293,7 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
             
         params = {
              'color': 'color_label',
+             'symbol': 'symbol_label',
              'hover_data': hover_cols,
              'title': f"{method} - {domain.upper()} - {title_suffix}"
         }
@@ -373,18 +403,33 @@ app.layout = html.Div([
     html.Div([
         html.Div(id='single-view', children=[
             html.Div([dcc.Graph(id='plot-1', style={'height': '600px'})], className="card mb-3"),
-            html.Div([html.H4("Statistics"), html.Div(id='stats-1')], className="card")
+            html.Div([html.H4("Statistics"), html.Div(id='stats-1')], className="card mb-3"),
+            html.Div([
+                html.H4("ANOVA Test"),
+                html.Div(id='anova-stats-1', className="mb-2"),
+                dcc.Graph(id='anova-plot-1', style={'height': '500px'})
+            ], className="card")
         ]),
         
         html.Div(id='comparison-view', style={'display': 'none'}, children=[
             html.Div(className="comparison-container", children=[
                 html.Div([
-                    html.Div([dcc.Graph(id='plot-left', style={'height': '500px'})], className="card"),
-                    html.Div([html.H5("Stats 1"), html.Div(id='stats-left')], className="card mt-3")
+                    html.Div([dcc.Graph(id='plot-left', style={'height': '500px'})], className="card mb-3"),
+                    html.Div([html.H5("Stats 1"), html.Div(id='stats-left')], className="card mt-3 mb-3"),
+                    html.Div([
+                        html.H5("ANOVA 1"),
+                        html.Div(id='anova-stats-left', className="mb-2"),
+                        dcc.Graph(id='anova-plot-left', style={'height': '400px'})
+                    ], className="card")
                 ]),
                 html.Div([
-                    html.Div([dcc.Graph(id='plot-right', style={'height': '500px'})], className="card"),
-                    html.Div([html.H5("Stats 2"), html.Div(id='stats-right')], className="card mt-3")
+                    html.Div([dcc.Graph(id='plot-right', style={'height': '500px'})], className="card mb-3"),
+                    html.Div([html.H5("Stats 2"), html.Div(id='stats-right')], className="card mt-3 mb-3"),
+                    html.Div([
+                        html.H5("ANOVA 2"),
+                        html.Div(id='anova-stats-right', className="mb-2"),
+                        dcc.Graph(id='anova-plot-right', style={'height': '400px'})
+                    ], className="card")
                 ])
             ])
         ])
@@ -478,7 +523,9 @@ def options_axis_selectors(protocol, domains):
      return opt1, opt2, opt3, val1, val2, val3
 
 @app.callback(
-    [Output('plot-1', 'figure'), Output('stats-1', 'children'), Output('info-panel', 'children')],
+    [Output('plot-1', 'figure'), Output('stats-1', 'children'),
+     Output('anova-plot-1', 'figure'), Output('anova-stats-1', 'children'),
+     Output('info-panel', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
      State({'type': 'method-dropdown', 'index': 1}, 'value'),
@@ -487,6 +534,7 @@ def options_axis_selectors(protocol, domains):
      State({'type': 'domain-dropdown', 'index': 1}, 'value'),
      State('global-dimensions-radio', 'value'),
      State({'type': 'color-dropdown', 'index': 1}, 'value'),
+     State({'type': 'anova-target', 'index': 1}, 'value'),
      State('theme-store', 'data'),
      State('comparison-toggle', 'value'),
      State({'type': 'axis-select', 'index': 1, 'axis': 1}, 'value'),
@@ -494,25 +542,47 @@ def options_axis_selectors(protocol, domains):
      State({'type': 'axis-select', 'index': 1, 'axis': 3}, 'value')],
     prevent_initial_call=True
 )
-def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, theme, comp, ax1, ax2, ax3):
+def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, anova_target, theme, comp, ax1, ax2, ax3):
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
-        return fig, "No data", html.P("Ready")
+        return fig, "No data", go.Figure(), "", html.P("Ready")
     
     axes = [ax1, ax2, ax3]
     fig, stats = run_single_analysis(prot, meth, x_mode, y_cols, dom, axes, dims, theme, color)
     
+    # Calculate ANOVA
+    df, meta = load_data(prot)
+    color_labels, symbol_labels, _ = build_supervision_labels(meta, prot, color)
+    temp_df = meta.copy()
+    temp_df['color_label'] = color_labels
+    
+    # Handle dict from dropdown
+    if isinstance(anova_target, dict):
+        anova_target = anova_target.get('value')
+        
+    target_col = anova_target if anova_target else y_cols[0]
+    Y_block = build_Y(df, [target_col])
+    temp_df[target_col] = Y_block[target_col].values
+    
+    anova_fig, anova_stats = compute_anova_and_plot(temp_df, target_col, 'color_label')
+    if theme == 'dark':
+        anova_fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        
+    anova_str_res = f"F: {anova_stats.get('F', 0):.2f} | p-value: {anova_stats.get('p_value', 1):.4f}"
+    
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
-        html.P([html.Strong("Method: "), meth[0]]),
-        html.P([html.Strong("Domain Mode: "), dom[0]]),
+        html.P([html.Strong("Method: "), meth]),
+        html.P([html.Strong("Domain Mode: "), dom]),
     ])
-    return fig, stats, info
+    return fig, stats, anova_fig, anova_str_res, info
 
 @app.callback(
     [Output('plot-left', 'figure'), Output('stats-left', 'children'),
-     Output('plot-right', 'figure'), Output('stats-right', 'children')],
+     Output('anova-plot-left', 'figure'), Output('anova-stats-left', 'children'),
+     Output('plot-right', 'figure'), Output('stats-right', 'children'),
+     Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
      State({'type': 'method-dropdown', 'index': ALL}, 'value'),
@@ -521,6 +591,7 @@ def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, theme, comp, 
      State({'type': 'domain-dropdown', 'index': ALL}, 'value'),
      State('global-dimensions-radio', 'value'),
      State({'type': 'color-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'anova-target', 'index': ALL}, 'value'),
      State('theme-store', 'data'),
      State('comparison-toggle', 'value'),
      State({'type': 'axis-select', 'index': ALL, 'axis': 1}, 'value'),
@@ -528,26 +599,47 @@ def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, theme, comp, 
      State({'type': 'axis-select', 'index': ALL, 'axis': 3}, 'value')],
     prevent_initial_call=True
 )
-def update_comparison(n, prot, methods, x_modes, y_cols_lists, doms, dims, colors, theme, comp, ax1s, ax2s, ax3s):
+def update_comparison(n, prot, methods, x_modes, y_cols_lists, doms, dims, colors, anova_targets, theme, comp, ax1s, ax2s, ax3s):
     fig = go.Figure()
     fig.update_layout(title="Enable comparison mode")
     
     if n == 0 or 'yes' not in comp or len(methods) < 2:
-        return fig, "No data", fig, "No data"
+        return fig, "Waiting...", go.Figure(), "", fig, "Waiting...", go.Figure(), ""
+        
+    df, meta = load_data(prot)
     
+    def generate_anova_comp(color_mode, ytargets, atarget):
+        colors_arr, symbols_arr, _ = build_supervision_labels(meta, prot, color_mode)
+        temp_df = meta.copy()
+        temp_df['color_label'] = colors_arr
+        
+        if isinstance(atarget, dict):
+            atarget = atarget.get('value')
+            
+        target_col = atarget if atarget else ytargets[0]
+        Y_data = build_Y(df, [target_col])
+        temp_df[target_col] = Y_data[target_col].values
+        
+        afig, astats = compute_anova_and_plot(temp_df, target_col, 'color_label')
+        if theme == 'dark':
+            afig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return afig, f"F: {astats.get('F', 0):.2f} | p-value: {astats.get('p_value', 1):.4f}"
+
     # Analysis 1
     axes1 = [a[0] if len(a)>0 else None for a in [ax1s, ax2s, ax3s]]
     fig1, stats1 = run_single_analysis(
         prot, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0]
     )
+    afig1, astat1 = generate_anova_comp(colors[0], y_cols_lists[0], anova_targets[0])
     
     # Analysis 2
     axes2 = [a[1] if len(a)>1 else None for a in [ax1s, ax2s, ax3s]]
     fig2, stats2 = run_single_analysis(
         prot, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1]
     )
+    afig2, astat2 = generate_anova_comp(colors[1], y_cols_lists[1], anova_targets[1])
     
-    return fig1, stats1, fig2, stats2
+    return fig1, stats1, afig1, astat1, fig2, stats2, afig2, astat2
 
 # Expose server for Vercel
 server = app.server
