@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, State, ALL
+from dash import dcc, html, Input, Output, State, ALL, MATCH
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 import plotly.express as px
@@ -20,7 +20,11 @@ except FileNotFoundError:
     quick_guide_content = "Quick Guide not found. Please ensure QUICK_GUIDE.md is in the project root."
 
 # --- Globals & Setup ---
-app = dash.Dash(__name__, external_stylesheets=['https://bootswatch.com/5/flatly/bootstrap.min.css'])
+app = dash.Dash(
+    __name__, 
+    external_stylesheets=['https://bootswatch.com/5/flatly/bootstrap.min.css'],
+    suppress_callback_exceptions=True
+)
 app.title = "EEG PSD Dashboard"
 
 data_cache = {}
@@ -111,6 +115,20 @@ def build_supervision_labels(meta, protocol, color_by_mode):
         
     return color_labels, symbol_labels, warning
 
+def run_projected_anova(coords_df, color_labels, target_label="Projected Axis 1"):
+    """
+    Calculates one-way ANOVA on the first projected dimension (the plotted points).
+    """
+    temp_df = pd.DataFrame({
+        'val': coords_df.iloc[:, 0].values,
+        'label': color_labels
+    })
+    from anova_engine import compute_anova_and_plot
+    fig, stats = compute_anova_and_plot(temp_df, 'val', 'label')
+    # Update axis label in title for clarity
+    fig.update_layout(title=f"ANOVA: {target_label}")
+    return fig, stats
+
 def create_analysis_controls(panel_id):
     """Create a set of analysis controls for a panel."""
     return html.Div([
@@ -174,7 +192,7 @@ def create_analysis_controls(panel_id):
             ])
         ]),
         
-        html.Label("Color By", className="control-label"),
+        html.Label("Color By (Visual)", className="control-label"),
         dcc.Dropdown(
             id={'type': 'color-dropdown', 'index': panel_id},
             options=[
@@ -189,20 +207,25 @@ def create_analysis_controls(panel_id):
             value='group',
             className="mb-3 dash-dropdown"
         ),
+
+        # Supervision is only for CDA/LDA
+        html.Div(id={'type': 'supervision-container', 'index': panel_id}, style={'display': 'none'}, children=[
+            html.Label("Supervision (CDA/LDA Math)", className="control-label"),
+            dcc.Dropdown(
+                id={'type': 'supervision-dropdown', 'index': panel_id},
+                options=[
+                    {'label': 'Complexity', 'value': 'complexity'},
+                    {'label': 'Overlap (Prot A)', 'value': 'overlap'}
+                ],
+                value='complexity',
+                className="mb-3 dash-dropdown"
+            ),
+        ]),
         
         html.Hr(),
-        
-        html.Label("ANOVA Target", className="control-label"),
-        dcc.Dropdown(
-            id={'type': 'anova-target', 'index': panel_id},
-            options=Y_VARIABLES,
-            value=Y_VARIABLES[0]['value'],
-            placeholder="Select variable to test...",
-            className="mb-3 dash-dropdown"
-        ),
     ], className="comparison-panel mb-3" if panel_id == 2 else "mb-3")
 
-def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, theme='light', color_by='group'):
+def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domain, axes, n_dims, theme='light', color_by='group', supervision_by='complexity'):
     """Run analysis and return figure, stats."""
     try:
         # Load caching
@@ -211,6 +234,15 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
             data_cache[protocol] = (df, meta)
         else:
             df, meta = data_cache[protocol]
+
+        # 1. Filter by Selected Groups
+        if groups_selected:
+            mask = df['grupo'].isin(groups_selected)
+            df = df[mask].copy()
+            meta = meta[mask].copy()
+
+        if df.empty:
+            raise ValueError("No data available for the selected groups.")
 
         # Validations before continuing
         if not y_cols:
@@ -221,10 +253,21 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
         Y = build_Y(df, y_cols)
         
         # Build supervision labels
-        color_labels, symbol_labels, had_warning = build_supervision_labels(meta, protocol, color_by)
+        # 1. Labels for Visual Coloring
+        color_labels, symbol_labels, _ = build_supervision_labels(meta, protocol, color_by)
+        
+        # 2. Labels for Mathematical Supervision (CDA/LDA)
+        # Simplified: user selects Complexity or Overlap as the column name
+        if supervision_by == 'overlap' and 'Overlap' in meta.columns:
+            math_labels = meta['Overlap'].astype(str).tolist()
+            had_warning = False
+        else:
+            # Default Complexity
+            math_labels = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True).tolist()
+            had_warning = False
 
-        # Compute Embeddings
-        X_scores, Y_scores, stats = compute_embeddings(X, Y, color_labels, method, max(3, n_dims))
+        # Compute Embeddings using math_labels for supervision
+        X_scores, Y_scores, stats = compute_embeddings(X, Y, math_labels, method, max(3, n_dims))
         
         # Build Plot Coordinates
         coords_df = pd.DataFrame(index=X.index)
@@ -282,6 +325,23 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
         plot_df['color_label'] = color_labels
         plot_df['symbol_label'] = symbol_labels
         
+        # --- Projected ANOVA ---
+        # Calculate ANOVA on the first plotted dimension vs color labels
+        # we must drop NaNs for the stat test
+        stat_df = plot_df[[axis_names[0], 'color_label']].dropna()
+        try:
+            if not stat_df.empty and len(stat_df['color_label'].unique()) > 1:
+                from anova_engine import compute_anova_and_plot
+                anova_fig, anova_stats = compute_anova_and_plot(stat_df, axis_names[0], 'color_label')
+                anova_fig.update_layout(title=f"ANOVA: {axis_names[0]}")
+                if theme == 'dark':
+                    anova_fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                anova_res_text = f"F: {anova_stats.get('F', 0):.2f} | p-value: {anova_stats.get('p_value', 1):.4f}"
+            else:
+                anova_fig, anova_res_text = go.Figure(), "ANOVA: Insufficient groups/data"
+        except Exception as ae:
+            anova_fig, anova_res_text = go.Figure(), f"ANOVA Error: {str(ae)}"
+
         title_suffix = f"{color_by.capitalize()}" + (" (Warning)" if had_warning else "")
 
         # Base Hover Configs
@@ -345,14 +405,14 @@ def run_single_analysis(protocol, method, x_mode, y_cols, domain, axes, n_dims, 
              stats_content.append(html.P([html.Strong("CDA X Ext. Dims: "), str(cdx['d'])]))
              stats_content.append(html.P([html.Strong("CDA X ChiSqs: "), chisqs]))
 
-        return fig, html.Div(stats_content or "No stats evaluated")
+        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig, anova_res_text
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         error_fig = go.Figure()
         error_fig.update_layout(title=f"Error: {str(e)}")
-        return error_fig, html.Div(f"Error: {str(e)}")
+        return error_fig, html.Div(f"Error: {str(e)}"), []
 
 # --- Layout ---
 app.layout = html.Div([
@@ -401,6 +461,18 @@ app.layout = html.Div([
             value='A',
             className="mb-3 dash-dropdown"
         ),
+        
+        html.Div(id='group-filter-container', children=[
+            html.Label("Groups", className="control-label"),
+            dcc.Checklist(
+                id='group-checklist',
+                options=[{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}],
+                value=['CV', 'SV'],
+                className="mb-3 list-style-none",
+                inline=False,
+                labelStyle={'display': 'block', 'marginRight': '10px'}
+            ),
+        ]),
         
         html.Label("Dimensions", className="control-label"),
         dcc.RadioItems(
@@ -608,6 +680,28 @@ def toggle_comparison(enabled):
         return create_analysis_controls(2), {'display': 'none'}, {'display': 'block'}
     return html.Div(), {'display': 'block'}, {'display': 'none'}
 
+# Protocol Change -> Group Options & Visibility
+@app.callback(
+    [Output('group-filter-container', 'style'),
+     Output('group-checklist', 'options'),
+     Output('group-checklist', 'value')],
+    [Input('protocol-dropdown', 'value')]
+)
+def update_group_options(prot):
+    if prot == 'A':
+        return {'display': 'block'}, [{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}], ['CV', 'SV']
+    elif prot == 'B':
+        return {'display': 'block'}, [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}], ['CF', 'SF']
+    else:
+        return {'display': 'none'}, [], []
+
+@app.callback(
+    Output({'type': 'supervision-container', 'index': MATCH}, 'style'),
+    [Input({'type': 'method-dropdown', 'index': MATCH}, 'value')]
+)
+def update_supervision_visibility(meth):
+    return {'display': 'block'} if meth in ['CDA', 'LDA'] else {'display': 'none'}
+
 # Mixed Axes UI Visibility Callback
 @app.callback(
     [Output({'type': 'mixed-axes-container', 'index': ALL}, 'style'),
@@ -660,55 +754,36 @@ def options_axis_selectors(protocol, domains):
      Output('info-panel', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
+     State('group-checklist', 'value'),
      State({'type': 'method-dropdown', 'index': 1}, 'value'),
      State({'type': 'x-mode-dropdown', 'index': 1}, 'value'),
      State({'type': 'y-checklist', 'index': 1}, 'value'),
      State({'type': 'domain-dropdown', 'index': 1}, 'value'),
      State('global-dimensions-radio', 'value'),
      State({'type': 'color-dropdown', 'index': 1}, 'value'),
-     State({'type': 'anova-target', 'index': 1}, 'value'),
+     State({'type': 'supervision-dropdown', 'index': 1}, 'value'),
      State('theme-store', 'data'),
-     State('comparison-toggle', 'value'),
      State({'type': 'axis-select', 'index': 1, 'axis': 1}, 'value'),
      State({'type': 'axis-select', 'index': 1, 'axis': 2}, 'value'),
-     State({'type': 'axis-select', 'index': 1, 'axis': 3}, 'value')],
+     State({'type': 'axis-select', 'index': 1, 'axis': 3}, 'value'),
+     State('comparison-toggle', 'value')],
     prevent_initial_call=True
 )
-def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, anova_target, theme, comp, ax1, ax2, ax3):
+def update_single_analysis(n, prot, groups, meth, x_mode, y_cols, dom, dims, color, supervision_by, theme, ax1, ax2, ax3, comp):
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
         return fig, "No data", go.Figure(), "", html.P("Ready")
     
     axes = [ax1, ax2, ax3]
-    fig, stats = run_single_analysis(prot, meth, x_mode, y_cols, dom, axes, dims, theme, color)
-    
-    # Calculate ANOVA
-    df, meta = load_data(prot)
-    color_labels, symbol_labels, _ = build_supervision_labels(meta, prot, color)
-    temp_df = meta.copy()
-    temp_df['color_label'] = color_labels
-    
-    # Handle dict from dropdown
-    if isinstance(anova_target, dict):
-        anova_target = anova_target.get('value')
-        
-    target_col = anova_target if anova_target else y_cols[0]
-    Y_block = build_Y(df, [target_col])
-    temp_df[target_col] = Y_block[target_col].values
-    
-    anova_fig, anova_stats = compute_anova_and_plot(temp_df, target_col, 'color_label')
-    if theme == 'dark':
-        anova_fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        
-    anova_str_res = f"F: {anova_stats.get('F', 0):.2f} | p-value: {anova_stats.get('p_value', 1):.4f}"
+    fig, stats, anova_fig, anova_res = run_single_analysis(prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by)
     
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
-        html.P([html.Strong("Method: "), meth]),
-        html.P([html.Strong("Domain Mode: "), dom]),
+        html.P([html.Strong("Groups: "), ", ".join(groups) if groups else "All"]),
+        html.H6(f"Method: {meth}", style={'marginTop': '10px'}),
     ])
-    return fig, stats, anova_fig, anova_str_res, info
+    return fig, stats, anova_fig, anova_res, info
 
 @app.callback(
     [Output('plot-left', 'figure'), Output('stats-left', 'children'),
@@ -717,13 +792,14 @@ def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, anova_target,
      Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
+     State('group-checklist', 'value'),
      State({'type': 'method-dropdown', 'index': ALL}, 'value'),
      State({'type': 'x-mode-dropdown', 'index': ALL}, 'value'),
      State({'type': 'y-checklist', 'index': ALL}, 'value'),
      State({'type': 'domain-dropdown', 'index': ALL}, 'value'),
      State('global-dimensions-radio', 'value'),
      State({'type': 'color-dropdown', 'index': ALL}, 'value'),
-     State({'type': 'anova-target', 'index': ALL}, 'value'),
+     State({'type': 'supervision-dropdown', 'index': ALL}, 'value'),
      State('theme-store', 'data'),
      State('comparison-toggle', 'value'),
      State({'type': 'axis-select', 'index': ALL, 'axis': 1}, 'value'),
@@ -731,47 +807,26 @@ def update_single(n, prot, meth, x_mode, y_cols, dom, dims, color, anova_target,
      State({'type': 'axis-select', 'index': ALL, 'axis': 3}, 'value')],
     prevent_initial_call=True
 )
-def update_comparison(n, prot, methods, x_modes, y_cols_lists, doms, dims, colors, anova_targets, theme, comp, ax1s, ax2s, ax3s):
+def update_comparison(n, prot, groups, methods, x_modes, y_cols_lists, doms, dims, colors, supervisions, theme, comp, ax1s, ax2s, ax3s):
     fig = go.Figure()
     fig.update_layout(title="Enable comparison mode")
     
     if n == 0 or 'yes' not in comp or len(methods) < 2:
         return fig, "Waiting...", go.Figure(), "", fig, "Waiting...", go.Figure(), ""
         
-    df, meta = load_data(prot)
-    
-    def generate_anova_comp(color_mode, ytargets, atarget):
-        colors_arr, symbols_arr, _ = build_supervision_labels(meta, prot, color_mode)
-        temp_df = meta.copy()
-        temp_df['color_label'] = colors_arr
-        
-        if isinstance(atarget, dict):
-            atarget = atarget.get('value')
-            
-        target_col = atarget if atarget else ytargets[0]
-        Y_data = build_Y(df, [target_col])
-        temp_df[target_col] = Y_data[target_col].values
-        
-        afig, astats = compute_anova_and_plot(temp_df, target_col, 'color_label')
-        if theme == 'dark':
-            afig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        return afig, f"F: {astats.get('F', 0):.2f} | p-value: {astats.get('p_value', 1):.4f}"
-
     # Analysis 1
-    axes1 = [a[0] if len(a)>0 else None for a in [ax1s, ax2s, ax3s]]
-    fig1, stats1 = run_single_analysis(
-        prot, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0]
+    axes1 = [ax1s[0], ax2s[0], ax3s[0]]
+    fig1, stats1, anova_fig1, anova_res1 = run_single_analysis(
+        prot, groups, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0], supervisions[0]
     )
-    afig1, astat1 = generate_anova_comp(colors[0], y_cols_lists[0], anova_targets[0])
     
     # Analysis 2
-    axes2 = [a[1] if len(a)>1 else None for a in [ax1s, ax2s, ax3s]]
-    fig2, stats2 = run_single_analysis(
-        prot, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1]
+    axes2 = [ax1s[1], ax2s[1], ax3s[1]]
+    fig2, stats2, anova_fig2, anova_res2 = run_single_analysis(
+        prot, groups, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1], supervisions[1]
     )
-    afig2, astat2 = generate_anova_comp(colors[1], y_cols_lists[1], anova_targets[1])
     
-    return fig1, stats1, afig1, astat1, fig2, stats2, afig2, astat2
+    return fig1, stats1, anova_fig1, anova_res1, fig2, stats2, anova_fig2, anova_res2
 
 # Expose server for Vercel
 server = app.server
