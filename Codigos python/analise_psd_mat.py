@@ -1646,7 +1646,7 @@ relacoes_B = {
 }
 relacao_C = 'Baseline OA'
 
-def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
+'''def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
     #df_a_normalizar = df_A_final.copy()
     """
     Normaliza as potências de bandas de EEG de um DataFrame de tarefa (df_a_normalizar)
@@ -1728,6 +1728,118 @@ df_B_final = normalizar_bandas(df_a_normalizar= df_B_final,
                                df_baseline= df_baseline, relacoes= relacoes_B)
 df_C_final = normalizar_bandas(df_a_normalizar= df_C_final, 
                                df_baseline= df_baseline, relacoes= relacao_C)          
+'''
+def normalizar_trecho(df_a_normalizar,df_baseline,relacoes,tamanho_trecho = 110):
+    """
+    Normaliza a PSD de um trecho de EEG em relação à PSD da baseline correspondente,
+    criando novas colunas com os valores normalizados para cada canal.
+
+    A função percorre cada linha de `df_a_normalizar`, identifica o participante (ID)
+    e, se existir, o grupo experimental, encontra a linha correspondente em
+    `df_baseline` e normaliza a PSD do trecho atual pela PSD da baseline do mesmo
+    participante e canal. A normalização é feita ponto a ponto, considerando apenas
+    os primeiros `tamanho_trecho` pontos do vetor de PSD. O resultado é armazenado
+    em novas colunas nomeadas como `psd_<canal>_norm`.
+
+    Parâmetros
+    ----------
+    df_a_normalizar : pandas.DataFrame
+        DataFrame contendo os trechos cuja PSD já foi calculada e armazenada na
+        coluna `'psd_trecho'`. Deve conter:
+            - 'ID' (identificador do participante)
+            - opcionalmente 'grupo' (grupo experimental, ex: 'CF' ou 'SF')
+            - 'Trecho_eeg' (usada para extrair os nomes dos canais)
+            - 'psd_trecho', em que cada célula deve conter um dicionário no formato
+            `{canal: (freq, psd)}`, por exemplo:
+            `{'CZ': (freq_array, psd_array), 'C3': (...), 'C4': (...)}`
+
+    df_baseline : pandas.DataFrame
+        DataFrame contendo a PSD da baseline correspondente de cada participante.
+        Deve conter:
+            - 'ID'
+            - opcionalmente 'grupo'
+            - 'psd_trecho', no mesmo formato de `df_a_normalizar`
+
+    relacoes : dict ou str
+        Se `df_a_normalizar` possuir a coluna `'grupo'`, deve ser um dicionário que
+        relaciona cada grupo experimental à condição de baseline correspondente em
+        `df_baseline`.
+        Exemplo: `{'CF': 'Baseline OF', 'SF': 'Baseline OF'}`
+
+        Se `df_a_normalizar` não possuir a coluna `'grupo'`, `relacoes` deve ser uma
+        string com o nome fixo da condição de baseline a ser usada.
+
+    tamanho_trecho : int, default=100
+        Número de pontos iniciais do vetor de PSD a serem considerados na
+        normalização. A função utiliza apenas os índices `0:tamanho_trecho` tanto da
+        PSD atual quanto da PSD da baseline.
+
+    Retorna
+    -------
+    pandas.DataFrame
+        O mesmo DataFrame `df_a_normalizar`, acrescido de novas colunas contendo os
+        vetores de PSD normalizados para cada canal, nomeadas como
+        `psd_<canal>_norm`.
+
+    Notas
+    -----
+    - A normalização é feita ponto a ponto:
+    `psd_normalizado = psd_atual_trecho / psd_baseline_trecho`
+    - Cada nova célula das colunas `psd_<canal>_norm` contém um vetor numpy com os
+    valores normalizados da PSD.
+    - Se o participante não possuir baseline correspondente, a função lançará erro
+    ao tentar acessar `.iloc[0]`.
+    - Se houver valores zero na PSD da baseline, podem surgir `inf` ou `nan` na
+    normalização.
+    - A função usa a coluna `'Trecho_eeg'` apenas para obter a lista de canais, mas
+    a normalização em si é feita com base na coluna `'psd_trecho'`.
+
+    Exemplo de uso
+    --------------
+    >>> relacoes = {'CF': 'Baseline OF', 'SF': 'Baseline OF'}
+    >>> df_norm = normalizar_trecho(df_A_final, df_baseline, relacoes, tamanho_trecho=100)
+    >>> df_norm[['psd_CZ_norm', 'psd_C3_norm', 'psd_C4_norm']].head()
+"""
+    
+    channels = list(df_a_normalizar['Trecho_eeg'].iloc[0].keys()) #vetor de canais
+    cols_norm = [f'psd_{c}_norm' for c in channels]
+    df_a_normalizar[cols_norm] = None
+    
+    for idx, row in df_a_normalizar.iterrows():
+        ind=row['ID']
+        # Se o df não tiver coluna 'grupo', usa uma baseline fixa (passada em relacoes como string)
+        if 'grupo' in df_a_normalizar.columns:
+            grupo = relacoes[row['grupo']]
+        else:
+            grupo = relacoes  # aqui relacoes vira tipo: "Baseline OF" (string)
+        
+        for ch in channels:
+            # Mask da linha da baseline
+            if 'grupo' in df_baseline.columns:
+                mask = (df_baseline['ID'] == ind) & (df_baseline['grupo'] == grupo)
+            else:
+                mask = (df_baseline['ID'] == ind)
+            
+            psd_baseline_trecho = df_baseline[mask]['psd_trecho'].iloc[0][ch][1] #psd da baseline
+            #cortando o trecho apenas em frequências de interesse
+            psd_baseline_trecho = psd_baseline_trecho[0:tamanho_trecho]
+            #valor da psd da linha atual daquele canal
+            psd_atual_trecho = row['psd_trecho'][ch][1][0:tamanho_trecho]
+            
+            psd_normalizado = psd_atual_trecho/psd_baseline_trecho
+            df_a_normalizar.at[idx,f'psd_{ch}_norm'] = psd_normalizado
+        
+    return df_a_normalizar
+df_A_final = normalizar_trecho(df_a_normalizar=df_A_final,
+                            df_baseline=df_baseline,
+                            relacoes= relacoes_A)
+df_B_final = normalizar_trecho(df_a_normalizar=df_B_final,
+                            df_baseline=df_baseline,
+                            relacoes= relacoes_B)
+df_C_final = normalizar_trecho(df_a_normalizar=df_C_final,
+                            df_baseline=df_baseline,
+                            relacoes= relacao_C)
+
 
 #%% PLS Regression
 from sklearn.cross_decomposition import PLSRegression
