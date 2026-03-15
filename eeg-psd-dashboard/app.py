@@ -151,11 +151,11 @@ def create_analysis_controls(panel_id):
         dcc.Dropdown(
             id={'type': 'x-mode-dropdown', 'index': panel_id},
             options=[
-                {'label': 'PSD trecho completo', 'value': 'psd_full'},
+                {'label': 'PSD Completo Normalizado (Baseline)', 'value': 'psd_full_norm'},
                 {'label': 'PSD estratificada por bandas', 'value': 'psd_bands'},
                 {'label': 'PSD estratificada (normalizada)', 'value': 'psd_bands_norm'}
             ],
-            value='psd_bands_norm',
+            value='psd_full_norm',
             className="mb-3 dash-dropdown"
         ),
 
@@ -214,10 +214,11 @@ def create_analysis_controls(panel_id):
             dcc.Dropdown(
                 id={'type': 'supervision-dropdown', 'index': panel_id},
                 options=[
+                    {'label': 'Group (CV/SV)', 'value': 'grupo'},
                     {'label': 'Complexity', 'value': 'complexity'},
                     {'label': 'Overlap (Prot A)', 'value': 'overlap'}
                 ],
-                value='complexity',
+                value='grupo',
                 className="mb-3 dash-dropdown"
             ),
         ]),
@@ -257,8 +258,11 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         color_labels, symbol_labels, _ = build_supervision_labels(meta, protocol, color_by)
         
         # 2. Labels for Mathematical Supervision (CDA/LDA)
-        # Simplified: user selects Complexity or Overlap as the column name
-        if supervision_by == 'overlap' and 'Overlap' in meta.columns:
+        # Simplified: user selects Complexity, Overlap, or Grupo
+        if supervision_by == 'grupo' and 'grupo' in meta.columns:
+            math_labels = meta['grupo'].astype(str).tolist()
+            had_warning = False
+        elif supervision_by == 'overlap' and 'Overlap' in meta.columns:
             math_labels = meta['Overlap'].astype(str).tolist()
             had_warning = False
         else:
@@ -694,6 +698,41 @@ def update_group_options(prot):
         return {'display': 'block'}, [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}], ['CF', 'SF']
     else:
         return {'display': 'none'}, [], []
+
+@app.callback(
+    [Output({'type': 'supervision-dropdown', 'index': ALL}, 'options'),
+     Output({'type': 'supervision-dropdown', 'index': ALL}, 'value')],
+    [Input('protocol-dropdown', 'value')],
+    [State({'type': 'supervision-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'supervision-dropdown', 'index': ALL}, 'id')]
+)
+def update_supervision_options(prot, current_values, ids):
+    if not ids:
+        return dash.no_update
+    
+    if prot == 'A':
+        options = [
+            {'label': 'Group (CV/SV)', 'value': 'grupo'},
+            {'label': 'Complexity', 'value': 'complexity'},
+            {'label': 'Overlap (Prot A)', 'value': 'overlap'}
+        ]
+        default_val = 'grupo'
+    elif prot == 'B':
+        options = [
+            {'label': 'Group (CF/SF)', 'value': 'grupo'},
+            {'label': 'Complexity', 'value': 'complexity'}
+        ]
+        default_val = 'grupo'
+    else:
+        options = [
+            {'label': 'Complexity', 'value': 'complexity'}
+        ]
+        default_val = 'complexity'
+        
+    ret_options = [options for _ in ids]
+    ret_values = [default_val if v not in [opt['value'] for opt in options] else v for v in current_values]
+    
+    return ret_options, ret_values
 
 @app.callback(
     Output({'type': 'supervision-container', 'index': MATCH}, 'style'),
