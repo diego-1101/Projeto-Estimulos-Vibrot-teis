@@ -24,7 +24,7 @@
     \in \mathbb{R}^{T \times 3F}
     $$
 
-    onde $T$ é o númeor de trials e F é a quantidade de pontos da psd. No caso, temos $F=150$.
+    onde $T$ é o númeor de trials e F é a quantidade de pontos da psd. No caso, temos $F=110$.
 
 - `protA_Y`: matriz com os pos´siveis valores que a variável de desempenho Y pode receber. A matriz está estruturada como:
     $$
@@ -75,7 +75,7 @@
     \in \mathbb{R}^{T \times 3F}
     $$
 
-    onde $T$ é o númeor de trials e F é a quantidade de pontos da psd. No caso, temos $F=150$.
+    onde $T$ é o númeor de trials e F é a quantidade de pontos da psd. No caso, temos $F=110$.
 
 - `protB_Y`: matriz com os pos´siveis valores que a variável de desempenho Y pode receber. A matriz está estruturada como:
     $$
@@ -125,7 +125,7 @@
     \in \mathbb{R}^{T \times 3F}
     $$
 
-    onde $T$ é o númeor de trials e F é a quantidade de pontos da psd. No caso, temos $F=150$.
+    onde $T$ é o númeor de trials e F é a quantidade de pontos da psd. No caso, temos $F=110$.
 
 - `protC_Y`: matriz com os pos´siveis valores que a variável de desempenho Y pode receber. A matriz está estruturada como:
     $$
