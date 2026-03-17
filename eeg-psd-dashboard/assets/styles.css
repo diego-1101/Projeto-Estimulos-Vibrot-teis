@@ -326,3 +326,54 @@ body.dark-mode .modal-body p,
 body.dark-mode .modal-body li {
     color: #e0e0e0 !important;
 }
+
+/* ============================================ */
+/* CUSTOM TABS                                  */
+/* ============================================ */
+
+.custom-tabs-container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+.custom-tab {
+    padding: 12px 24px;
+    border: none;
+    border-bottom: 3px solid transparent;
+    background-color: transparent;
+    color: #6c757d;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    flex: 1; /* Make them equal width */
+    text-align: center;
+}
+
+.custom-tab:hover {
+    color: #4fc3f7;
+    background-color: rgba(79, 195, 247, 0.05);
+}
+
+.custom-tab--selected {
+    color: #0d6efd !important;
+    border-bottom: 3px solid #0d6efd !important;
+    background-color: transparent !important;
+}
+
+body.dark-mode .custom-tab {
+    color: #9e9e9e;
+}
+
+body.dark-mode .custom-tab:hover {
+    color: #4fc3f7;
+}
+
+body.dark-mode .custom-tab--selected {
+    color: #4fc3f7 !important;
+    border-bottom: 3px solid #4fc3f7 !important;
+}

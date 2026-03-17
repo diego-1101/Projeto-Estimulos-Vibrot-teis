@@ -1,3 +1,8 @@
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+
 import dash
 from dash import dcc, html, Input, Output, State, ALL, MATCH
 from dash.exceptions import PreventUpdate
@@ -10,6 +15,7 @@ import numpy as np
 from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
 from anova_engine import compute_anova_and_plot
+from psd_visualizer import create_psd_subplots
 import os
 
 # Load Quick Guide Content
@@ -419,39 +425,12 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         return error_fig, html.Div(f"Error: {str(e)}"), []
 
 # --- Layout ---
-app.layout = html.Div([
-    # Top Header Controls
-    html.Div([
-        html.Button("🌙", id='theme-toggle', className='theme-toggle', n_clicks=0),
-    ], style={'position': 'absolute', 'top': '15px', 'right': '20px', 'zIndex': 1000}),
-    
-    dcc.Store(id='theme-store', data='light'),
-    html.Div(id='theme-injector', style={'display': 'none'}),
-    
-    # Quick Guide Modal Overlay
-    html.Div(id='quick-guide-modal', style={'display': 'none'}, children=[
-        html.Div(className='modal-backdrop', style={
-            'position': 'fixed', 'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh',
-            'backgroundColor': 'rgba(0, 0, 0, 0.7)', 'zIndex': 1040
-        }),
-        html.Div(className='modal-content-wrapper', style={
-            'position': 'fixed', 'top': '5vh', 'left': '10vw', 'width': '80vw', 'height': '90vh',
-            'zIndex': 1050, 'backgroundColor': 'inherit', 'borderRadius': '10px', 'boxShadow': '0 4px 20px rgba(0,0,0,0.5)',
-            'display': 'flex', 'flexDirection': 'column', 'overflow': 'hidden'
-        }, children=[
-            html.Div(className='modal-header card-header d-flex justify-content-between align-items-center', style={'padding': '15px'}, children=[
-                html.H4("📖 Guia Rápido e Metodológico", className='m-0'),
-                html.Button("✖ Fechar", id='close-guide-btn', className='btn btn-danger btn-sm')
-            ]),
-            html.Div(className='modal-body card-body', style={'overflowY': 'auto', 'padding': '30px'}, children=[
-                dcc.Markdown(quick_guide_content, mathjax=True)
-            ])
-        ])
-    ]),
-    
-    html.Div([
-        html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
-        html.H5("v2 Multivariate Analysis", className="text-muted mb-4"),
+
+def get_analysis_layout():
+    return html.Div([
+        html.Div([
+            html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
+            html.H5("v2 Multivariate Analysis", className="text-muted mb-4"),
         html.Hr(),
         
         html.Label("Protocol", className="control-label"),
@@ -518,7 +497,7 @@ app.layout = html.Div([
         html.Div(id='single-view', children=[
             html.Div([
                 html.Div([
-                    html.Button("📖 Quick Guide", id='open-guide-btn', className='btn btn-sm btn-outline-info')
+                    html.Button("ℹ️ Quick Guide", id='open-guide-btn', className='btn btn-sm btn-outline-info')
                 ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
                 dcc.Graph(id='plot-1', style={'height': '600px'})
             ], className="card mb-3", style={'position': 'relative'}),
@@ -563,9 +542,142 @@ app.layout = html.Div([
             ])
         ])
     ], className="main-content", id='main-content')
+    ])
+
+def get_psd_layout():
+    return html.Div([
+        html.Div([
+            html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
+            html.H5("v2 PSD Visualization", className="text-muted mb-4"),
+            html.Hr(),
+            
+            html.Label("Protocol", className="control-label"),
+            dcc.Dropdown(
+                id='psd-protocol-dropdown',
+                options=[
+                    {'label': 'Protocol A', 'value': 'A'},
+                    {'label': 'Protocol B', 'value': 'B'},
+                    {'label': 'Protocol C', 'value': 'C'}
+                ],
+                value='A',
+                className="mb-3 dash-dropdown"
+            ),
+            
+            html.Label("Channels", className="control-label"),
+            dcc.Checklist(
+                id='psd-channels-checklist',
+                options=[
+                    {'label': ' Cz', 'value': 'Cz'},
+                    {'label': ' C3', 'value': 'C3'},
+                    {'label': ' C4', 'value': 'C4'}
+                ],
+                value=['Cz', 'C3', 'C4'],
+                className="mb-3"
+            ),
+            
+            html.Label("Scale", className="control-label"),
+            dcc.RadioItems(
+                id='psd-scale-radio',
+                options=[
+                    {'label': ' Linear', 'value': 'linear'},
+                    {'label': ' Log10', 'value': 'log10'}
+                ],
+                value='log10',
+                className="mb-3"
+            ),
+            
+            html.Label("Frequency Bands", className="control-label"),
+            dcc.Checklist(
+                id='psd-bands-toggle',
+                options=[{'label': ' Highlight Bands', 'value': 'yes'}],
+                value=['yes'],
+                className="mb-3"
+            ),
+            
+            html.Hr(),
+            html.Label("Stratification Label", className="control-label"),
+            dcc.Dropdown(
+                id='psd-stratify-dropdown',
+                options=[
+                    {'label': 'Group (CV/SV)', 'value': 'grupo'},
+                    {'label': 'Complexity', 'value': 'complexity'},
+                    {'label': 'Overlap', 'value': 'overlap'}
+                ],
+                value='grupo',
+                className="mb-4 dash-dropdown"
+            ),
+            
+            html.Button("Run PSD", id='run-psd-btn', className="btn btn-primary w-100"),
+            html.Hr(),
+            html.Div(id='psd-info-panel', className="card p-3 mt-3")
+        ], className="sidebar"),
+        
+        html.Div([
+            html.Div([
+                html.Div([
+                    html.H4("PSD Channels Over Frequency", className="mb-3")
+                ]),
+                # Using dcc.Loading to show a spinner during the initial plot calculation
+                dcc.Loading(
+                    id="loading-psd",
+                    type="default",
+                    children=dcc.Graph(id='psd-main-plot', style={'minHeight': '600px'})
+                )
+            ], className="card p-3 mb-3")
+        ], className="main-content")
+    ])
+
+# --- Layout ---
+app.layout = html.Div([
+    # Top Header Controls
+    html.Div([
+        html.Button("🌙", id='theme-toggle', className='theme-toggle', n_clicks=0),
+    ], style={'position': 'absolute', 'top': '15px', 'right': '20px', 'zIndex': 1000}),
+    
+    dcc.Store(id='theme-store', data='light'),
+    html.Div(id='theme-injector', style={'display': 'none'}),
+    
+    # Quick Guide Modal Overlay
+    html.Div(id='quick-guide-modal', style={'display': 'none'}, children=[
+        html.Div(className='modal-backdrop', style={
+            'position': 'fixed', 'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh',
+            'backgroundColor': 'rgba(0, 0, 0, 0.7)', 'zIndex': 1040
+        }),
+        html.Div(className='modal-content-wrapper', style={
+            'position': 'fixed', 'top': '5vh', 'left': '10vw', 'width': '80vw', 'height': '90vh',
+            'zIndex': 1050, 'backgroundColor': 'inherit', 'borderRadius': '10px', 'boxShadow': '0 4px 20px rgba(0,0,0,0.5)',
+            'display': 'flex', 'flexDirection': 'column', 'overflow': 'hidden'
+        }, children=[
+            html.Div(className='modal-header card-header d-flex justify-content-between align-items-center', style={'padding': '15px'}, children=[
+                html.H4("📖 Guia Rápido e Metodológico", className='m-0'),
+                html.Button("✖ Fechar", id='close-guide-btn', className='btn btn-danger btn-sm')
+            ]),
+            html.Div(className='modal-body card-body', style={'overflowY': 'auto', 'padding': '30px'}, children=[
+                dcc.Markdown(quick_guide_content, mathjax=True)
+            ])
+        ])
+    ]),
+    
+    html.Div([
+        dcc.Tabs(id='app-tabs', value='tab-analysis', children=[
+            dcc.Tab(label='Multivariate Analysis', value='tab-analysis', className='custom-tab', selected_className='custom-tab--selected'),
+            dcc.Tab(label='PSD Visualization', value='tab-psd', className='custom-tab', selected_className='custom-tab--selected')
+        ], className='custom-tabs-container'),
+        html.Div(id='tabs-content')
+    ], style={'paddingTop': '40px'})
 ])
 
 # --- Callbacks ---
+
+@app.callback(
+    Output('tabs-content', 'children'),
+    [Input('app-tabs', 'value')]
+)
+def render_content(tab):
+    if tab == 'tab-analysis':
+        return get_analysis_layout()
+    elif tab == 'tab-psd':
+        return get_psd_layout()
 
 @app.callback(
     Output('quick-guide-modal', 'style'),
@@ -580,6 +692,12 @@ def toggle_quick_guide(btn1, btn2, btn3, close_clicks, current_style):
     from dash import ctx
     if not ctx.triggered:
         return {'display': 'none'}
+        
+    # Check if the trigger is an initialization (n_clicks is None)
+    # This prevents the modal from opening when the buttons are dynamically added to the layout via tabs
+    trigger_val = ctx.triggered[0]['value']
+    if trigger_val is None:
+        return current_style
     
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
@@ -869,6 +987,97 @@ def update_comparison(n, prot, groups, methods, x_modes, y_cols_lists, doms, dim
 
 # Expose server for Vercel
 server = app.server
+
+@app.callback(
+    [Output('psd-stratify-dropdown', 'options'),
+     Output('psd-stratify-dropdown', 'value')],
+    [Input('psd-protocol-dropdown', 'value')]
+)
+def update_psd_stratify_options(prot):
+    if prot == 'A':
+        options = [
+            {'label': 'Group (CV/SV)', 'value': 'grupo'},
+            {'label': 'Complexity', 'value': 'complexity'},
+            {'label': 'Overlap (Prot A)', 'value': 'overlap'}
+        ]
+        return options, 'grupo'
+    elif prot == 'B':
+        options = [
+            {'label': 'Group (CF/SF)', 'value': 'grupo'},
+            {'label': 'Complexity', 'value': 'complexity'}
+        ]
+        return options, 'grupo'
+    else:
+        options = [
+            {'label': 'Complexity', 'value': 'complexity'}
+        ]
+        return options, 'complexity'
+
+
+@app.callback(
+    [Output('psd-main-plot', 'figure'),
+     Output('psd-info-panel', 'children')],
+    [Input('run-psd-btn', 'n_clicks')],
+    [State('psd-protocol-dropdown', 'value'),
+     State('psd-channels-checklist', 'value'),
+     State('psd-scale-radio', 'value'),
+     State('psd-bands-toggle', 'value'),
+     State('psd-stratify-dropdown', 'value'),
+     State('theme-store', 'data')],
+    prevent_initial_call=True
+)
+def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, stratify_by, theme):
+    try:
+        # Load caching
+        if protocol not in data_cache:
+            df, meta = load_data(protocol=protocol)
+            data_cache[protocol] = (df, meta)
+        else:
+            df, meta = data_cache[protocol]
+            
+        # The PSD visualizing engine relies on the protX_x_psd_norm.csv raw rows without dropping groups
+        # (Though groups are handled gracefully later, it's better to provide the pure data and strata)
+        # However, data_loader.load_data already dropped some bad rows. So we get build_X to load perfectly aligned rows.
+        df_x = build_X(df, 'psd_full_norm')
+    except Exception as e:
+        fig = go.Figure()
+        fig.update_layout(title=f"Error Loading PSD Data: {str(e)}")
+        return fig, html.Div(f"Data Loader Exception: {str(e)}", className="text-danger")
+
+    # Map the dropdown target names to the actual metadata columns
+    stratify_col = None
+    if stratify_by == 'grupo':
+        stratify_col = 'grupo'
+    elif stratify_by == 'complexity':
+        stratify_col = 'Complexidade'
+    elif stratify_by == 'overlap':
+        stratify_col = 'Overlap'
+
+    show_bands = 'yes' in (bands_toggle or [])
+    
+    try:
+        fig = create_psd_subplots(
+            df_meta=meta.copy(),
+            df_x=df_x,
+            channels_selected=channels,
+            stratify_by=stratify_col,
+            scale=scale,
+            show_bands=show_bands,
+            theme=theme
+        )
+        
+        info_html = html.Div(
+            f"Successfully rendered {len(channels)} channels × {len(meta[stratify_col].unique()) if stratify_col in meta.columns else 1} conditions.", 
+            className="text-success"
+        )
+        return fig, info_html
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        fig = go.Figure()
+        fig.update_layout(title=f"Rendering Error: {str(e)}")
+        return fig, html.Div(f"Plotting Exception: {str(e)}", className="text-danger")
+
 
 if __name__ == '__main__':
     app.run_server(debug=True, host='0.0.0.0', port=8050)
