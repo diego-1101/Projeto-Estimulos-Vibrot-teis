@@ -81,45 +81,51 @@ def build_supervision_labels(meta, protocol, color_by_mode):
 
     # Assemble series
     try:
-        color_s = meta['grupo'].astype(str)
-        symbol_s = meta['grupo'].astype(str)
-        
-        # Safe getters 
+        group = meta['grupo'].astype(str)
         comp = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
         over = meta.get('Overlap', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
         
         if mode == 'group':
-            color_s = meta['grupo'].astype(str)
-            symbol_s = color_s
+            color_s = group
+            symbol_s = group
+            cluster_s = group
         elif mode == 'complexity':
             color_s = 'C' + comp
             symbol_s = color_s
+            cluster_s = color_s
         elif mode == 'overlap':
             color_s = 'O' + over
             symbol_s = color_s
+            cluster_s = color_s
         elif mode == 'group_comp':
-            color_s = meta['grupo'].astype(str)
-            symbol_s = 'C' + comp
-        elif mode == 'group_overlap':
-            color_s = meta['grupo'].astype(str)
-            symbol_s = 'O' + over
-        elif mode == 'comp_overlap':
             color_s = 'C' + comp
-            symbol_s = 'O' + over
+            symbol_s = group
+            cluster_s = group + '_C' + comp
+        elif mode == 'group_overlap':
+            color_s = 'O' + over
+            symbol_s = group
+            cluster_s = group + '_O' + over
+        elif mode == 'comp_overlap':
+            color_s = 'O' + over
+            symbol_s = 'C' + comp
+            cluster_s = 'C' + comp + '_O' + over
         elif mode == 'all':
-            color_s = meta['grupo'].astype(str) + '_C' + comp
-            symbol_s = 'O' + over
+            color_s = 'C' + comp + '_O' + over
+            symbol_s = group
+            cluster_s = group + '_C' + comp + '_O' + over
         
         color_labels = color_s.tolist()
         symbol_labels = symbol_s.tolist()
+        cluster_labels = cluster_s.tolist()
     except KeyError as e:
         # Fallback if a column is miraculously missing
         print(f"KeyError: {e}. Falling back to default Group coloring.")
         color_labels = meta['grupo'].astype(str).tolist()
         symbol_labels = color_labels
+        cluster_labels = color_labels
         warning = True
         
-    return color_labels, symbol_labels, warning
+    return color_labels, symbol_labels, cluster_labels, warning
 
 def run_projected_anova(coords_df, color_labels, target_label="Projected Axis 1"):
     """
@@ -261,20 +267,11 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         
         # Build supervision labels
         # 1. Labels for Visual Coloring
-        color_labels, symbol_labels, _ = build_supervision_labels(meta, protocol, color_by)
+        color_labels, symbol_labels, cluster_labels, _ = build_supervision_labels(meta, protocol, color_by)
         
         # 2. Labels for Mathematical Supervision (CDA/LDA)
-        # Simplified: user selects Complexity, Overlap, or Grupo
-        if supervision_by == 'grupo' and 'grupo' in meta.columns:
-            math_labels = meta['grupo'].astype(str).tolist()
-            had_warning = False
-        elif supervision_by == 'overlap' and 'Overlap' in meta.columns:
-            math_labels = meta['Overlap'].astype(str).tolist()
-            had_warning = False
-        else:
-            # Default Complexity
-            math_labels = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True).tolist()
-            had_warning = False
+        _, _, math_labels_colors, had_warning = build_supervision_labels(meta, protocol, supervision_by)
+        math_labels = math_labels_colors
 
         # Compute Embeddings using math_labels for supervision
         X_scores, Y_scores, stats = compute_embeddings(X, Y, math_labels, method, max(3, n_dims))
@@ -334,15 +331,16 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         plot_df = pd.concat([coords_df, meta], axis=1)
         plot_df['color_label'] = color_labels
         plot_df['symbol_label'] = symbol_labels
+        plot_df['cluster_label'] = cluster_labels
         
         # --- Projected ANOVA ---
-        # Calculate ANOVA on the first plotted dimension vs color labels
+        # Calculate ANOVA on the first plotted dimension vs cluster labels
         # we must drop NaNs for the stat test
-        stat_df = plot_df[[axis_names[0], 'color_label']].dropna()
+        stat_df = plot_df[[axis_names[0], 'cluster_label']].dropna()
         try:
-            if not stat_df.empty and len(stat_df['color_label'].unique()) > 1:
+            if not stat_df.empty and len(stat_df['cluster_label'].unique()) > 1:
                 from anova_engine import compute_anova_and_plot
-                anova_fig, anova_stats = compute_anova_and_plot(stat_df, axis_names[0], 'color_label')
+                anova_fig, anova_stats = compute_anova_and_plot(stat_df, axis_names[0], 'cluster_label')
                 anova_fig.update_layout(title=f"ANOVA: {axis_names[0]}")
                 if theme == 'dark':
                     anova_fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
@@ -351,6 +349,38 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                 anova_fig, anova_res_text = go.Figure(), "ANOVA: Insufficient groups/data"
         except Exception as ae:
             anova_fig, anova_res_text = go.Figure(), f"ANOVA Error: {str(ae)}"
+
+        # --- Centroid Distances ---
+        centroid_res = []
+        try:
+            if not plot_df.empty and len(plot_df['cluster_label'].unique()) > 1:
+                # Group by cluster_label to get the centroids in the current projection
+                coord_cols = [c for c in axis_names if pd.api.types.is_numeric_dtype(plot_df[c])]
+                centroids = plot_df.groupby('cluster_label')[coord_cols].mean()
+                
+                pairs = []
+                c_names = centroids.index.tolist()
+                for i in range(len(c_names)):
+                    for j in range(i+1, len(c_names)):
+                        p1 = centroids.loc[c_names[i]].values
+                        p2 = centroids.loc[c_names[j]].values
+                        dist = np.linalg.norm(p1 - p2)
+                        pairs.append((c_names[i], c_names[j], dist))
+                
+                # Sort by distance 
+                pairs.sort(key=lambda x: x[2], reverse=True)
+                
+                for g1, g2, d in pairs:
+                    centroid_res.append(
+                        html.Div(f"{g1} ↔ {g2} : {d:.3f}", 
+                                 className="badge bg-secondary me-2 mb-2 p-2", 
+                                 style={'fontSize': '0.9em'})
+                    )
+            
+            if not centroid_res:
+                centroid_res = html.P("Not enough groups to compare centroids.", className="text-muted mb-0", style={'fontSize': '0.9em'})
+        except Exception as ce:
+            centroid_res = html.Div(f"Centroid Error: {str(ce)}", className="text-danger")
 
         title_suffix = f"{color_by.capitalize()}" + (" (Warning)" if had_warning else "")
 
@@ -369,9 +399,12 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         if color_by == 'group' and protocol in ['A', 'B']:
             color_map = {'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'}
             
+        symbol_map = {'CV': 'circle', 'SV': 'square', 'CF': 'circle', 'SF': 'square'}
+            
         params = {
              'color': 'color_label',
              'symbol': 'symbol_label',
+             'symbol_map': symbol_map,
              'hover_data': hover_cols,
              'title': f"{method} - {domain.upper()} - {title_suffix}"
         }
@@ -415,14 +448,15 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
              stats_content.append(html.P([html.Strong("CDA X Ext. Dims: "), str(cdx['d'])]))
              stats_content.append(html.P([html.Strong("CDA X ChiSqs: "), chisqs]))
 
-        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig, anova_res_text
+        # We must return 5 elements
+        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig, anova_res_text, html.Div(centroid_res, className="d-flex flex-wrap")
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         error_fig = go.Figure()
         error_fig.update_layout(title=f"Error: {str(e)}")
-        return error_fig, html.Div(f"Error: {str(e)}"), []
+        return error_fig, html.Div(f"Error: {str(e)}"), go.Figure(), "", ""
 
 # --- Layout ---
 
@@ -506,6 +540,10 @@ def get_analysis_layout():
                 html.H4("ANOVA Test"),
                 html.Div(id='anova-stats-1', className="mb-2"),
                 dcc.Graph(id='anova-plot-1', style={'height': '500px'})
+            ], className="card mb-3"),
+            html.Div([
+                html.H4("Centroid Distances"),
+                html.Div(id='centroid-distance-1', className="mb-2")
             ], className="card")
         ]),
         
@@ -523,6 +561,10 @@ def get_analysis_layout():
                         html.H5("ANOVA 1"),
                         html.Div(id='anova-stats-left', className="mb-2"),
                         dcc.Graph(id='anova-plot-left', style={'height': '400px'})
+                    ], className="card mb-3"),
+                    html.Div([
+                        html.H5("Centroid Distances 1"), 
+                        html.Div(id='centroid-distance-left', className="mb-2")
                     ], className="card")
                 ]),
                 html.Div([
@@ -537,6 +579,10 @@ def get_analysis_layout():
                         html.H5("ANOVA 2"),
                         html.Div(id='anova-stats-right', className="mb-2"),
                         dcc.Graph(id='anova-plot-right', style={'height': '400px'})
+                    ], className="card mb-3"),
+                    html.Div([
+                        html.H5("Centroid Distances 2"), 
+                        html.Div(id='centroid-distance-right', className="mb-2")
                     ], className="card")
                 ])
             ])
@@ -604,7 +650,15 @@ def get_psd_layout():
                     {'label': 'Overlap', 'value': 'overlap'}
                 ],
                 value='grupo',
-                className="mb-4 dash-dropdown"
+                className="mb-3 dash-dropdown"
+            ),
+            
+            dcc.Checklist(
+                id='psd-overlay-toggle',
+                options=[{'label': ' Overlap Condition (Mean Only)', 'value': 'yes'}],
+                value=[],
+                className="mb-4 text-muted",
+                style={'fontSize': '0.9em'}
             ),
             
             html.Button("Run PSD", id='run-psd-btn', className="btn btn-primary w-100"),
@@ -659,10 +713,12 @@ app.layout = html.Div([
     ]),
     
     html.Div([
-        dcc.Tabs(id='app-tabs', value='tab-analysis', children=[
-            dcc.Tab(label='Multivariate Analysis', value='tab-analysis', className='custom-tab', selected_className='custom-tab--selected'),
-            dcc.Tab(label='PSD Visualization', value='tab-psd', className='custom-tab', selected_className='custom-tab--selected')
-        ], className='custom-tabs-container'),
+        html.Div([
+            dcc.Tabs(id='app-tabs', value='tab-analysis', children=[
+                dcc.Tab(label='Multivariate Analysis', value='tab-analysis', className='custom-tab', selected_className='custom-tab--selected'),
+                dcc.Tab(label='PSD Visualization', value='tab-psd', className='custom-tab', selected_className='custom-tab--selected')
+            ], className='custom-tabs-container')
+        ], className='main-content', style={'paddingTop': '0px', 'paddingBottom': '0px'}),
         html.Div(id='tabs-content')
     ], style={'paddingTop': '40px'})
 ])
@@ -830,17 +886,21 @@ def update_supervision_options(prot, current_values, ids):
     
     if prot == 'A':
         options = [
-            {'label': 'Group (CV/SV)', 'value': 'grupo'},
+            {'label': 'Group (CV/SV)', 'value': 'group'},
             {'label': 'Complexity', 'value': 'complexity'},
-            {'label': 'Overlap (Prot A)', 'value': 'overlap'}
+            {'label': 'Overlap (Prot A)', 'value': 'overlap'},
+            {'label': 'Group + Complexity', 'value': 'group_comp'},
+            {'label': 'Group + Overlap', 'value': 'group_overlap'},
+            {'label': 'Group + Comp + Overlap', 'value': 'all'}
         ]
-        default_val = 'grupo'
+        default_val = 'group'
     elif prot == 'B':
         options = [
-            {'label': 'Group (CF/SF)', 'value': 'grupo'},
-            {'label': 'Complexity', 'value': 'complexity'}
+            {'label': 'Group (CF/SF)', 'value': 'group'},
+            {'label': 'Complexity', 'value': 'complexity'},
+            {'label': 'Group + Complexity', 'value': 'group_comp'}
         ]
-        default_val = 'grupo'
+        default_val = 'group'
     else:
         options = [
             {'label': 'Complexity', 'value': 'complexity'}
@@ -908,6 +968,7 @@ def options_axis_selectors(protocol, domains):
 @app.callback(
     [Output('plot-1', 'figure'), Output('stats-1', 'children'),
      Output('anova-plot-1', 'figure'), Output('anova-stats-1', 'children'),
+     Output('centroid-distance-1', 'children'),
      Output('info-panel', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
@@ -933,20 +994,22 @@ def update_single_analysis(n, prot, groups, meth, x_mode, y_cols, dom, dims, col
         return fig, "No data", go.Figure(), "", html.P("Ready")
     
     axes = [ax1, ax2, ax3]
-    fig, stats, anova_fig, anova_res = run_single_analysis(prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by)
+    fig, stats, anova_fig, anova_res, centroid_res = run_single_analysis(prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by)
     
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
         html.P([html.Strong("Groups: "), ", ".join(groups) if groups else "All"]),
         html.H6(f"Method: {meth}", style={'marginTop': '10px'}),
     ])
-    return fig, stats, anova_fig, anova_res, info
+    return fig, stats, anova_fig, anova_res, centroid_res, info
 
 @app.callback(
     [Output('plot-left', 'figure'), Output('stats-left', 'children'),
      Output('anova-plot-left', 'figure'), Output('anova-stats-left', 'children'),
+     Output('centroid-distance-left', 'children'),
      Output('plot-right', 'figure'), Output('stats-right', 'children'),
-     Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children')],
+     Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children'),
+     Output('centroid-distance-right', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
      State('group-checklist', 'value'),
@@ -969,21 +1032,21 @@ def update_comparison(n, prot, groups, methods, x_modes, y_cols_lists, doms, dim
     fig.update_layout(title="Enable comparison mode")
     
     if n == 0 or 'yes' not in comp or len(methods) < 2:
-        return fig, "Waiting...", go.Figure(), "", fig, "Waiting...", go.Figure(), ""
+        return fig, "Waiting...", go.Figure(), "", "", fig, "Waiting...", go.Figure(), "", ""
         
     # Analysis 1
     axes1 = [ax1s[0], ax2s[0], ax3s[0]]
-    fig1, stats1, anova_fig1, anova_res1 = run_single_analysis(
+    fig1, stats1, anova_fig1, anova_res1, centroid_res1 = run_single_analysis(
         prot, groups, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0], supervisions[0]
     )
     
     # Analysis 2
     axes2 = [ax1s[1], ax2s[1], ax3s[1]]
-    fig2, stats2, anova_fig2, anova_res2 = run_single_analysis(
+    fig2, stats2, anova_fig2, anova_res2, centroid_res2 = run_single_analysis(
         prot, groups, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1], supervisions[1]
     )
     
-    return fig1, stats1, anova_fig1, anova_res1, fig2, stats2, anova_fig2, anova_res2
+    return fig1, stats1, anova_fig1, anova_res1, centroid_res1, fig2, stats2, anova_fig2, anova_res2, centroid_res2
 
 # Expose server for Vercel
 server = app.server
@@ -1023,10 +1086,11 @@ def update_psd_stratify_options(prot):
      State('psd-scale-radio', 'value'),
      State('psd-bands-toggle', 'value'),
      State('psd-stratify-dropdown', 'value'),
+     State('psd-overlay-toggle', 'value'),
      State('theme-store', 'data')],
     prevent_initial_call=True
 )
-def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, stratify_by, theme):
+def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, stratify_by, overlay_toggle, theme):
     try:
         # Load caching
         if protocol not in data_cache:
@@ -1054,6 +1118,7 @@ def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, str
         stratify_col = 'Overlap'
 
     show_bands = 'yes' in (bands_toggle or [])
+    overlay_strata = 'yes' in (overlay_toggle or [])
     
     try:
         fig = create_psd_subplots(
@@ -1063,6 +1128,7 @@ def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, str
             stratify_by=stratify_col,
             scale=scale,
             show_bands=show_bands,
+            overlay_strata=overlay_strata,
             theme=theme
         )
         
