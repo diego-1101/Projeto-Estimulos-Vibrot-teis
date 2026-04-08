@@ -201,7 +201,7 @@ def plot_comparacao(gabarito = [], seq = [], score_parcial = 0, score_total = 0)
     # Criando dois gráficos lado a lado
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))  # 1 linha, 2 colunas
     fig.text(0.5, 1.02, "Comparação Gabarito x Trajetória Executada", fontsize=16, ha='center', fontweight='bold')
-    fig.text(0.5, .98, f"Score total: {score_total*100:.2f}, Score parcial: {score_parcial*100:.2f}", fontsize=14, ha='center')
+    #fig.text(0.5, .98, f"Score total: {score_total*100:.2f}, Score parcial: {score_parcial*100:.2f}", fontsize=14, ha='center')
     # Plotando a Trajetória do Gabarito (Eixo Esquerdo)
     axes[0].plot(x1, y1, 'o', label=sequencia1, color='green')
     axes[0].quiver(x1[:-1], y1[:-1], u1, v1, angles="xy", scale_units="xy", scale=1, color="g", alpha=0.5)
@@ -247,8 +247,9 @@ def plot_comparacao(gabarito = [], seq = [], score_parcial = 0, score_total = 0)
     plt.show()
 
 #%%
-#plot_comparacao(gabarito = [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4],seq= [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
-
+'''plot_comparacao(gabarito = [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4],
+                seq= [3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
+'''
 # %% 
 #plotar_trajetoria([3, 3, 3, 4, 4, 4, 1, 1, 1, 3, 3, 3, 4, 4, 4])
 # %%
