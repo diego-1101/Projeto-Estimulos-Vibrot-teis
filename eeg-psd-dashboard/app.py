@@ -16,6 +16,7 @@ from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
 from anova_engine import compute_anova_and_plot
 from psd_visualizer import create_psd_subplots
+from topoplot_engine import generate_topoplot_grid_base64, generate_topoplot_comparison_base64
 import os
 
 # Load Quick Guide Content
@@ -45,6 +46,8 @@ Y_VARIABLES = [
     {'label': 'Proporção Espacial X', 'value': 'Proporção espacial x'},
     {'label': 'Proporção Espacial Y', 'value': 'Proporção espacial y'},
 ]
+
+ALL_CHANNELS = ['FP1', 'FP2', 'FZ', 'F3', 'F4', 'F7', 'F8', 'CZ', 'C3', 'C4', 'T7', 'T8', 'P7', 'P8', 'PZ', 'P3', 'P4', 'O1', 'O2', 'FCZ', 'FC1', 'FC2', 'FC3', 'OZ', 'C2', 'CP1', 'CP3', 'CP4', 'C1', 'FC4', 'CPZ', 'CP2']
 
 # --- Helper Functions ---
 
@@ -159,15 +162,25 @@ def create_analysis_controls(panel_id):
             className="mb-3 dash-dropdown"
         ),
 
+        html.Label("Fase", className="control-label"),
+        dcc.Dropdown(id={'type': 'fase-dropdown', 'index': panel_id}, className="mb-3 dash-dropdown"),
+        
         html.Label("X (PSD Features)", className="control-label"),
         dcc.Dropdown(
             id={'type': 'x-mode-dropdown', 'index': panel_id},
             options=[
-                {'label': 'PSD Completo Normalizado (Baseline)', 'value': 'psd_full_norm'},
-                {'label': 'PSD estratificada por bandas', 'value': 'psd_bands'},
-                {'label': 'PSD estratificada (normalizada)', 'value': 'psd_bands_norm'}
+                {'label': 'PSD Completo Normalizado (Baseline)', 'value': 'psd_full_norm'}
             ],
             value='psd_full_norm',
+            className="mb-3 dash-dropdown"
+        ),
+
+        html.Label("Canais (Features do X)", className="control-label"),
+        dcc.Dropdown(
+            id={'type': 'channels-dropdown', 'index': panel_id},
+            options=[{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
+            value=['CZ', 'C3', 'C4'],
+            multi=True,
             className="mb-3 dash-dropdown"
         ),
 
@@ -238,7 +251,7 @@ def create_analysis_controls(panel_id):
         html.Hr(),
     ], className="comparison-panel mb-3" if panel_id == 2 else "mb-3")
 
-def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domain, axes, n_dims, theme='light', color_by='group', supervision_by='complexity'):
+def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domain, axes, n_dims, theme='light', color_by='group', supervision_by='complexity', fase='estimulacao', selected_channels=None):
     """Run analysis and return figure, stats."""
     try:
         # Load caching
@@ -262,7 +275,7 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
             raise ValueError("Please select at least one Y variable from the checklist.")
 
         # Build feature matrices
-        X = build_X(df, x_mode)
+        X = build_X(df, x_mode, fase=fase, selected_channels=selected_channels)
         Y = build_Y(df, y_cols)
         
         # Build supervision labels
@@ -608,17 +621,16 @@ def get_psd_layout():
                 value='A',
                 className="mb-3 dash-dropdown"
             ),
+            html.Label("Fase", className="control-label"),
+            dcc.Dropdown(id='psd-fase-dropdown', className="mb-3 dash-dropdown"),
             
             html.Label("Channels", className="control-label"),
-            dcc.Checklist(
+            dcc.Dropdown(
                 id='psd-channels-checklist',
-                options=[
-                    {'label': ' Cz', 'value': 'Cz'},
-                    {'label': ' C3', 'value': 'C3'},
-                    {'label': ' C4', 'value': 'C4'}
-                ],
-                value=['Cz', 'C3', 'C4'],
-                className="mb-3"
+                options=[{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
+                value=['CZ', 'C3', 'C4'],
+                multi=True,
+                className="mb-3 dash-dropdown"
             ),
             
             html.Label("Scale", className="control-label"),
@@ -681,6 +693,132 @@ def get_psd_layout():
         ], className="main-content")
     ])
 
+def get_topoplot_layout():
+    return html.Div([
+        html.Div([
+            html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
+            html.H5("Topoplot Spatial Projections", className="text-muted mb-4"),
+            html.Hr(),
+            
+            html.Details([
+                html.Summary("🔧 Options - Panel 1", style={'cursor': 'pointer', 'fontWeight': 'bold', 'marginBottom': '10px'}),
+                html.Div([
+                    html.Label("Protocol", className="control-label"),
+                    dcc.Dropdown(
+                        id={'type': 'topo-prot-dropdown', 'index': 1},
+                        options=[
+                            {'label': 'Protocol A', 'value': 'A'},
+                            {'label': 'Protocol B', 'value': 'B'},
+                            {'label': 'Protocol C', 'value': 'C'},
+                            {'label': 'Baseline (Protocol C)', 'value': 'baseline_C'}
+                        ],
+                        value='A',
+                        className="mb-3 dash-dropdown"
+                    ),
+                    
+                    html.Div(id={'type': 'topo-fase-container', 'index': 1}, children=[
+                        html.Label("Fase", className="control-label"),
+                        dcc.Dropdown(id={'type': 'topo-fase-dropdown', 'index': 1}, className="mb-3 dash-dropdown"),
+                    ]),
+                    
+                    html.Div(id={'type': 'topo-group-container', 'index': 1}, children=[
+                        html.Label("Group", className="control-label"),
+                        dcc.Dropdown(id={'type': 'topo-group-dropdown', 'index': 1}, className="mb-3 dash-dropdown")
+                    ]),
+                    
+                    html.Div(id={'type': 'topo-norm-container', 'index': 1}, children=[
+                        dcc.Checklist(
+                            id={'type': 'topo-norm-check', 'index': 1},
+                            options=[{'label': ' Normalizado', 'value': 'yes'}],
+                            value=['yes'],
+                            className="mb-3"
+                        )
+                    ], style={'display': 'none'}),
+                    
+                    html.Label("Scale", className="control-label"),
+                    dcc.RadioItems(
+                        id={'type': 'topo-scale-radio', 'index': 1},
+                        options=[
+                            {'label': ' Linear (psd_mean)', 'value': 'linear'},
+                            {'label': ' dB (psd_db_mean)', 'value': 'db'}
+                        ],
+                        value='db',
+                        className="mb-3"
+                    )
+                ], className="p-2 border rounded")
+            ], open=True, className="mb-3"),
+
+            dcc.Checklist(
+                id='topo-comparison-toggle',
+                options=[{'label': ' Enable Comparison', 'value': 'yes'}],
+                value=[],
+                className="mb-3"
+            ),
+            
+            html.Div(id='topo-controls-2-wrapper', style={'display':'none'}, children=[
+                html.Details([
+                    html.Summary("🔧 Options - Panel 2", style={'cursor': 'pointer', 'fontWeight': 'bold', 'marginBottom': '10px'}),
+                    html.Div([
+                        html.Label("Protocol", className="control-label"),
+                        dcc.Dropdown(
+                            id={'type': 'topo-prot-dropdown', 'index': 2},
+                            options=[
+                                {'label': 'Protocol A', 'value': 'A'},
+                                {'label': 'Protocol B', 'value': 'B'},
+                                {'label': 'Protocol C', 'value': 'C'},
+                                {'label': 'Protocol C (Baseline)', 'value': 'baseline_C'}
+                            ],
+                            value='B',
+                            className="mb-3 dash-dropdown"
+                        ),
+                        
+                        html.Div(id={'type': 'topo-fase-container', 'index': 2}, children=[
+                            html.Label("Fase", className="control-label"),
+                            dcc.Dropdown(id={'type': 'topo-fase-dropdown', 'index': 2}, className="mb-3 dash-dropdown"),
+                        ]),
+                        
+                        html.Div(id={'type': 'topo-group-container', 'index': 2}, children=[
+                            html.Label("Group", className="control-label"),
+                            dcc.Dropdown(id={'type': 'topo-group-dropdown', 'index': 2}, className="mb-3 dash-dropdown")
+                        ]),
+                        
+                        html.Div(id={'type': 'topo-norm-container', 'index': 2}, children=[
+                            dcc.Checklist(
+                                id={'type': 'topo-norm-check', 'index': 2},
+                                options=[{'label': ' Normalizado', 'value': 'yes'}],
+                                value=['yes'],
+                                className="mb-3"
+                            )
+                        ], style={'display': 'none'}),
+                        
+                        html.Label("Scale", className="control-label"),
+                        dcc.RadioItems(
+                            id={'type': 'topo-scale-radio', 'index': 2},
+                            options=[
+                                {'label': ' Linear (psd_mean)', 'value': 'linear'},
+                                {'label': ' dB (psd_db_mean)', 'value': 'db'}
+                            ],
+                            value='db',
+                            className="mb-3"
+                        )
+                    ], className="p-2 border rounded")
+                ], open=True, className="mb-3")
+            ]),
+
+            html.Button("Run Topoplot", id='run-topo-btn', className="btn btn-primary w-100"),
+            html.Hr(),
+            html.Div(id='topo-info-panel', className="card p-3 mt-3 text-muted", style={'fontSize': '0.9em'})
+        ], className="sidebar"),
+        
+        html.Div([
+            dcc.Loading(
+                id="loading-topo",
+                type="default",
+                children=html.Div(id="topo-output-container", className="d-flex flex-column gap-3 w-100")
+            )
+        ], className="main-content")
+    ])
+
 # --- Layout ---
 app.layout = html.Div([
     # Top Header Controls
@@ -716,7 +854,8 @@ app.layout = html.Div([
         html.Div([
             dcc.Tabs(id='app-tabs', value='tab-analysis', children=[
                 dcc.Tab(label='Multivariate Analysis', value='tab-analysis', className='custom-tab', selected_className='custom-tab--selected'),
-                dcc.Tab(label='PSD Visualization', value='tab-psd', className='custom-tab', selected_className='custom-tab--selected')
+                dcc.Tab(label='PSD Visualization', value='tab-psd', className='custom-tab', selected_className='custom-tab--selected'),
+                dcc.Tab(label='Topoplot', value='tab-topoplot', className='custom-tab', selected_className='custom-tab--selected')
             ], className='custom-tabs-container')
         ], className='main-content', style={'paddingTop': '0px', 'paddingBottom': '0px'}),
         html.Div(id='tabs-content')
@@ -734,6 +873,8 @@ def render_content(tab):
         return get_analysis_layout()
     elif tab == 'tab-psd':
         return get_psd_layout()
+    elif tab == 'tab-topoplot':
+        return get_topoplot_layout()
 
 @app.callback(
     Output('quick-guide-modal', 'style'),
@@ -975,6 +1116,8 @@ def options_axis_selectors(protocol, domains):
      State('group-checklist', 'value'),
      State({'type': 'method-dropdown', 'index': 1}, 'value'),
      State({'type': 'x-mode-dropdown', 'index': 1}, 'value'),
+     State({'type': 'fase-dropdown', 'index': 1}, 'value'),
+     State({'type': 'channels-dropdown', 'index': 1}, 'value'),
      State({'type': 'y-checklist', 'index': 1}, 'value'),
      State({'type': 'domain-dropdown', 'index': 1}, 'value'),
      State('global-dimensions-radio', 'value'),
@@ -987,14 +1130,14 @@ def options_axis_selectors(protocol, domains):
      State('comparison-toggle', 'value')],
     prevent_initial_call=True
 )
-def update_single_analysis(n, prot, groups, meth, x_mode, y_cols, dom, dims, color, supervision_by, theme, ax1, ax2, ax3, comp):
+def update_single_analysis(n, prot, groups, meth, x_mode, fase, selected_channels, y_cols, dom, dims, color, supervision_by, theme, ax1, ax2, ax3, comp):
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
         return fig, "No data", go.Figure(), "", html.P("Ready")
     
     axes = [ax1, ax2, ax3]
-    fig, stats, anova_fig, anova_res, centroid_res = run_single_analysis(prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by)
+    fig, stats, anova_fig, anova_res, centroid_res = run_single_analysis(prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by, fase, selected_channels)
     
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
@@ -1015,6 +1158,8 @@ def update_single_analysis(n, prot, groups, meth, x_mode, y_cols, dom, dims, col
      State('group-checklist', 'value'),
      State({'type': 'method-dropdown', 'index': ALL}, 'value'),
      State({'type': 'x-mode-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'fase-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'channels-dropdown', 'index': ALL}, 'value'),
      State({'type': 'y-checklist', 'index': ALL}, 'value'),
      State({'type': 'domain-dropdown', 'index': ALL}, 'value'),
      State('global-dimensions-radio', 'value'),
@@ -1027,7 +1172,7 @@ def update_single_analysis(n, prot, groups, meth, x_mode, y_cols, dom, dims, col
      State({'type': 'axis-select', 'index': ALL, 'axis': 3}, 'value')],
     prevent_initial_call=True
 )
-def update_comparison(n, prot, groups, methods, x_modes, y_cols_lists, doms, dims, colors, supervisions, theme, comp, ax1s, ax2s, ax3s):
+def update_comparison(n, prot, groups, methods, x_modes, fases, selected_channels_lists, y_cols_lists, doms, dims, colors, supervisions, theme, comp, ax1s, ax2s, ax3s):
     fig = go.Figure()
     fig.update_layout(title="Enable comparison mode")
     
@@ -1037,13 +1182,13 @@ def update_comparison(n, prot, groups, methods, x_modes, y_cols_lists, doms, dim
     # Analysis 1
     axes1 = [ax1s[0], ax2s[0], ax3s[0]]
     fig1, stats1, anova_fig1, anova_res1, centroid_res1 = run_single_analysis(
-        prot, groups, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0], supervisions[0]
+        prot, groups, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0], supervisions[0], fases[0], selected_channels_lists[0]
     )
     
     # Analysis 2
     axes2 = [ax1s[1], ax2s[1], ax3s[1]]
     fig2, stats2, anova_fig2, anova_res2, centroid_res2 = run_single_analysis(
-        prot, groups, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1], supervisions[1]
+        prot, groups, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1], supervisions[1], fases[1], selected_channels_lists[1]
     )
     
     return fig1, stats1, anova_fig1, anova_res1, centroid_res1, fig2, stats2, anova_fig2, anova_res2, centroid_res2
@@ -1082,6 +1227,7 @@ def update_psd_stratify_options(prot):
      Output('psd-info-panel', 'children')],
     [Input('run-psd-btn', 'n_clicks')],
     [State('psd-protocol-dropdown', 'value'),
+     State('psd-fase-dropdown', 'value'),
      State('psd-channels-checklist', 'value'),
      State('psd-scale-radio', 'value'),
      State('psd-bands-toggle', 'value'),
@@ -1090,7 +1236,7 @@ def update_psd_stratify_options(prot):
      State('theme-store', 'data')],
     prevent_initial_call=True
 )
-def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, stratify_by, overlay_toggle, theme):
+def run_psd_visualization(n_clicks, protocol, fase, channels, scale, bands_toggle, stratify_by, overlay_toggle, theme):
     try:
         # Load caching
         if protocol not in data_cache:
@@ -1102,7 +1248,7 @@ def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, str
         # The PSD visualizing engine relies on the protX_x_psd_norm.csv raw rows without dropping groups
         # (Though groups are handled gracefully later, it's better to provide the pure data and strata)
         # However, data_loader.load_data already dropped some bad rows. So we get build_X to load perfectly aligned rows.
-        df_x = build_X(df, 'psd_full_norm')
+        df_x = build_X(df, 'psd_full_norm', fase=fase, selected_channels=channels)
     except Exception as e:
         fig = go.Figure()
         fig.update_layout(title=f"Error Loading PSD Data: {str(e)}")
@@ -1144,6 +1290,197 @@ def run_psd_visualization(n_clicks, protocol, channels, scale, bands_toggle, str
         fig.update_layout(title=f"Rendering Error: {str(e)}")
         return fig, html.Div(f"Plotting Exception: {str(e)}", className="text-danger")
 
+
+# --- Fase Options Population Callbacks ---
+@app.callback(
+    [Output({'type': 'fase-dropdown', 'index': MATCH}, 'options'),
+     Output({'type': 'fase-dropdown', 'index': MATCH}, 'value')],
+    [Input('protocol-dropdown', 'value')]
+)
+def update_fase_options_analysis(prot):
+    if prot == 'C':
+        opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    else:
+        opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    return opts, 'estimulacao'
+
+@app.callback(
+    [Output('psd-fase-dropdown', 'options'),
+     Output('psd-fase-dropdown', 'value')],
+    [Input('psd-protocol-dropdown', 'value')]
+)
+def update_fase_options_psd(prot):
+    if prot == 'C':
+        opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    else:
+        opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    return opts, 'estimulacao'
+
+@app.callback(
+    [Output({'type': 'topo-fase-dropdown', 'index': MATCH}, 'options'),
+     Output({'type': 'topo-fase-dropdown', 'index': MATCH}, 'value')],
+    [Input({'type': 'topo-prot-dropdown', 'index': MATCH}, 'value')]
+)
+def update_fase_options_topo(prot):
+    if prot == 'C':
+        opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    else:
+        opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    return opts, 'estimulacao'
+
+@app.callback(
+    [Output({'type': 'topo-group-container', 'index': MATCH}, 'style'),
+     Output({'type': 'topo-group-dropdown', 'index': MATCH}, 'options'),
+     Output({'type': 'topo-group-dropdown', 'index': MATCH}, 'value'),
+     Output({'type': 'topo-norm-container', 'index': MATCH}, 'style'),
+     Output({'type': 'topo-fase-container', 'index': MATCH}, 'style')],
+    [Input({'type': 'topo-prot-dropdown', 'index': MATCH}, 'value')]
+)
+def update_topo_protocol_options(prot):
+    style_group = {'display': 'none'}
+    opts = []
+    val = None
+    style_norm = {'display': 'none'}
+    style_fase = {'display': 'block'}
+    
+    if prot == 'A':
+        style_group = {'display': 'block'}
+        opts = [{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}]
+        val = 'CV'
+    elif prot == 'B':
+        style_group = {'display': 'block'}
+        opts = [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}]
+        val = 'CF'
+    elif prot == 'C':
+        style_norm = {'display': 'block'}
+    elif prot == 'baseline_C':
+        style_fase = {'display': 'none'}
+        
+    return style_group, opts, val, style_norm, style_fase
+
+@app.callback(
+    Output('topo-controls-2-wrapper', 'style'),
+    Input('topo-comparison-toggle', 'value')
+)
+def toggle_topo_comparison(enabled):
+    return {'display': 'block'} if 'yes' in (enabled or []) else {'display': 'none'}
+
+@app.callback(
+    [Output('topo-output-container', 'children'),
+     Output('topo-info-panel', 'children')],
+    [Input('run-topo-btn', 'n_clicks')],
+    [State({'type': 'topo-prot-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'topo-fase-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'topo-group-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'topo-scale-radio', 'index': ALL}, 'value'),
+     State({'type': 'topo-norm-check', 'index': ALL}, 'value'),
+     State('topo-comparison-toggle', 'value')],
+    prevent_initial_call=True
+)
+def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
+    if not n_clicks:
+        from dash.exceptions import PreventUpdate
+        raise PreventUpdate
+        
+    outputs = []
+    messages = []
+    
+    do_comp = 'yes' in (comp_toggle or [])
+    panels = 2 if do_comp else 1
+    
+    for i in range(panels):
+        prot = prots[i]
+        fase = fases[i]
+        group = groups[i]
+        scale_db = scales[i] == 'db'
+        is_norm = 'yes' in (norms[i] or [])
+        is_baseline = (prot == 'baseline_C')
+        
+        real_prot = 'C' if is_baseline else prot
+        
+        img_b64, err = generate_topoplot_grid_base64(
+            protocol=real_prot, fase=fase, group=group, 
+            scale_db=scale_db, is_normalized=is_norm, is_baseline=is_baseline
+        )
+        
+        title_norm = " Normalizado" if is_norm else ""
+        title_group = f" - Grupo {group}" if prot in ['A', 'B'] else ""
+        title_scale = "(dB)" if scale_db else "(Linear)"
+        
+        fase_str = "N/A"
+        if fase:
+            fase_str = fase.capitalize()
+            
+        panel_title = f"Protocolo {prot}{title_norm} | Fase: {fase_str}{title_group} {title_scale}"
+        
+        from dash import html
+        if err:
+            outputs.append(html.Div([
+                html.H4(panel_title, className="text-center"),
+                html.Div(f"Erro: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
+            ], className="card p-3 shadow-sm"))
+            messages.append(f"Panel {i+1} Failed: {err}")
+        else:
+            outputs.append(html.Div([
+                html.H4(panel_title, className="text-center text-primary"),
+                html.Img(src=f"data:image/png;base64,{img_b64}", style={'width':'100%', 'height':'auto'})
+            ], className="card p-3 shadow-sm"))
+            messages.append(f"Panel {i+1} Rendered Successfully.")
+            
+    # --- Statistical Comparison Row ---
+    if do_comp and len(prots) >= 2:
+        # Prepare inputs for engine
+        p1 = {
+            'protocol': 'C' if (prots[0] == 'baseline_C') else prots[0],
+            'fase': fases[0],
+            'group': groups[0],
+            'is_normalized': 'yes' in (norms[0] or []),
+            'is_baseline': (prots[0] == 'baseline_C')
+        }
+        p2 = {
+            'protocol': 'C' if (prots[1] == 'baseline_C') else prots[1],
+            'fase': fases[1],
+            'group': groups[1],
+            'is_normalized': 'yes' in (norms[1] or []),
+            'is_baseline': (prots[1] == 'baseline_C')
+        }
+        
+        # We share the scale of the first panel for the comparison t-test selection logic
+        # (Though differentiate is always diff of means)
+        img_comp, stats_data, msg_comp = generate_topoplot_comparison_base64(p1, p2, scales[0] == 'db')
+        
+        if img_comp:
+            # Build the details list
+            details_children = []
+            for band_info in stats_data:
+                if band_info['channels']:
+                    details_children.append(html.B(f"{band_info['band']}: ", className="text-primary"))
+                    # Create a string like "C3 (p=0.001), Pz (p=0.045)"
+                    ch_list = ", ".join([f"{c['ch']} (p={c['p']:.3f})" for c in band_info['channels']])
+                    details_children.append(html.Span(ch_list))
+                    details_children.append(html.Br())
+            
+            if not details_children:
+                details_children = [html.I("Nenhum canal significativo encontrado (p < 0.05).")]
+
+            outputs.append(html.Div([
+                html.H4("Statistical Difference (Panel 1 - Panel 2)", className="text-center text-danger"),
+                html.P(msg_comp, className="text-center text-muted small"),
+                html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
+                
+                # Statistical Details Toggle
+                html.Details([
+                    html.Summary("📊 Detalhes Estatísticos (Canais Significativos)", 
+                                 style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#dc3545', 'marginTop': '10px'}),
+                    html.Div(details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
+                ], className="mt-2")
+                
+            ], className="card p-3 shadow-sm border-danger", style={'borderWidth': '2px'}))
+            messages.append("Statistical Comparison Rendered.")
+        else:
+            messages.append(f"Comparison Failed: {msg_comp}")
+            
+    return outputs, " | ".join(messages)
 
 if __name__ == '__main__':
     app.run_server(debug=True, host='0.0.0.0', port=8050)
