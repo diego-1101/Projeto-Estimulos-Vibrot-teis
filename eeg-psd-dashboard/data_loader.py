@@ -104,24 +104,25 @@ def _parse_eeg_array(val):
         return np.array(val)
     return np.array([])
 
-def build_X(df, x_mode):
+def build_X(df, x_mode, fase='estimulacao', selected_channels=None):
     """
     Constructs the X feature matrix based on the selected mode.
     Modes:
-      - 'psd_full': Concatenates arrays from CZ, C3, C4.
-      - 'psd_bands': specific scalar unnormalized band columns.
-      - 'psd_bands_norm': specific scalar normalized band columns.
+      - 'psd_full_norm': Concatenates arrays from selected channels.
     """
+    if selected_channels is None:
+         selected_channels = ['CZ', 'C3', 'C4']
+         
     if x_mode == 'psd_full_norm':
-        # Load pre-stacked CSV data (CZ, C3, C4 normalized by baseline)
+        # Load pre-stacked CSV data for the specific phase
         protocol = df.get('Protocolo_X', pd.Series('A', index=df.index)).iloc[0] if 'Protocolo_X' in df.columns else 'A'
         
         base_dir = os.path.dirname(__file__)
-        full_filepath = os.path.join(base_dir, 'data', f'prot{protocol}_X_psd_norm.csv')
+        full_filepath = os.path.join(base_dir, 'data', f'prot{protocol}_X_psd_norm_completo_{fase}.csv')
         
         # Fallback for lowercase 'x'
         if not os.path.exists(full_filepath):
-             full_filepath = os.path.join(base_dir, 'data', f'prot{protocol}_x_psd_norm.csv')
+             full_filepath = os.path.join(base_dir, 'data', f'prot{protocol}_x_psd_norm_completo_{fase}.csv')
              
         try:
             full_df = pd.read_csv(full_filepath)
@@ -129,6 +130,11 @@ def build_X(df, x_mode):
             if 'Unnamed: 0' in full_df.columns:
                 full_df = full_df.drop(columns=['Unnamed: 0'])
                 
+            # Filter the dataframe to only keep the columns that belong to the selected channels
+            # The columns are formatted as "CH_0", "CH_1", etc.
+            valid_cols = [c for c in full_df.columns if c.split('_')[0] in selected_channels]
+            full_df = full_df[valid_cols]
+            
             if len(full_df) == len(df):
                 full_df.index = df.index
                 return full_df
@@ -142,37 +148,11 @@ def build_X(df, x_mode):
                 raise ValueError(f"Lengths do not match. Full CSV: {len(full_df)}, DF: {len(df)}")
                 
         except FileNotFoundError:
-            raise FileNotFoundError(f"Missing {full_filepath}. Please ensure 'prot{protocol}_X_psd_norm.csv' is present in the data folder.")
+            raise FileNotFoundError(f"Missing {full_filepath}. Please ensure the file is present in the data folder.")
         except Exception as e:
             raise ValueError(f"Failed loading full PSD array: {str(e)}")
-    elif x_mode == 'psd_bands' or x_mode == 'psd_bands_norm':
-        prefix = 'psd_norm_' if x_mode == 'psd_bands_norm' else 'psd_'
-        bands = ['delta', 'theta', 'alfa', 'beta', 'gamma']
-        channels = ['CZ', 'C3', 'C4']
-        
-        target_cols = [f"{prefix}{b}_{c}" for c in channels for b in bands]
-        
-        # In Prot C, alfa might be spelled alpha, double check or just use what exists:
-        available_cols = [c for c in target_cols if c in df.columns]
-
-        if len(available_cols) < len(target_cols):
-             target_cols_alt = [c.replace('alfa', 'alpha') for c in target_cols]
-             available_cols = [c for c in target_cols_alt if c in df.columns]
-             
-        if not available_cols:
-             # Just matching prefix
-             available_cols = [c for c in df.columns if c.startswith(prefix) and not c.startswith("psd_trecho")]
-
-        if not available_cols:
-             raise ValueError(f"No columns matching {prefix} pattern found.")
-             
-        X = df[available_cols].copy()
-        for col in X.columns:
-            X[col] = pd.to_numeric(X[col], errors='coerce')
-        X.fillna(X.mean(), inplace=True)
-        
     else:
-        raise ValueError(f"Unknown x_mode: {x_mode}")
+        raise ValueError(f"Unknown x_mode: {x_mode} - Note that v2 requires psd_full_norm mode.")
         
     return X
 
@@ -205,3 +185,25 @@ def build_Y(df, y_cols_selected):
     Y.fillna(Y.mean(), inplace=True)
     
     return Y
+
+def get_condition_n(protocol, group):
+    """
+    Helper to get the number of trials for a given protocol and group.
+    """
+    try:
+        # Avoid circular imports if any, but here we are in data_loader.py
+        # Protocol C handling is done in load_data
+        df, _ = load_data(protocol=protocol)
+        
+        if protocol == 'baseline_C':
+             return len(df)
+             
+        if group and 'grupo' in df.columns:
+            n = len(df[df['grupo'] == group])
+        else:
+            n = len(df)
+            
+        return max(n, 2) # t-test needs at least 2 samples
+    except Exception as e:
+        print(f"Error getting n for {protocol}/{group}: {e}")
+        return 30 # Default safety fallback for typical datasets

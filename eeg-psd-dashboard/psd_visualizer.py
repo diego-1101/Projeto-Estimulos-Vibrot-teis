@@ -12,11 +12,7 @@ BANDS = {
     'gamma': {'range': (30, 55), 'color': 'rgba(153, 102, 255, 0.2)'}
 }
 
-CHANNELS_MAP = {
-    'Cz': (0, 110),
-    'C3': (110, 220),
-    'C4': (220, 330)
-}
+# Dynamic channel handling used below based on column names.
 
 def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, scale='linear', show_bands=False, overlay_strata=False, theme='light'):
     """
@@ -64,14 +60,16 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, scale='li
     if overlay_strata:
         row_idx = 1
         for col_idx, channel in enumerate(channels_selected, start=1):
-            start_col, end_col = CHANNELS_MAP[channel]
             
             for g_idx, group in enumerate(groups):
                 mask = df_meta[strat_col] == group
                 stratum_x = df_x[mask]
                 if stratum_x.empty: continue
                 
-                ch_data = stratum_x.iloc[:, start_col:end_col].values
+                # Fetch dynamically the columns corresponding to this channel
+                channel_cols = [c for c in stratum_x.columns if c.split('_')[0] == channel]
+                if not channel_cols: continue
+                ch_data = stratum_x[channel_cols].values
                 if scale == 'log10':
                     ch_data = np.log10(ch_data + 1e-10)
                 
@@ -108,8 +106,12 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, scale='li
             
             col_idx = 1
             for channel in channels_selected:
-                start_col, end_col = CHANNELS_MAP[channel]
-                ch_data = stratum_x.iloc[:, start_col:end_col].values
+                # Fetch dynamically the columns corresponding to this channel
+                channel_cols = [c for c in stratum_x.columns if c.split('_')[0] == channel]
+                if not channel_cols:
+                     col_idx += 1
+                     continue
+                ch_data = stratum_x[channel_cols].values
                 
                 if scale == 'log10':
                     ch_data = np.log10(ch_data + 1e-10)
