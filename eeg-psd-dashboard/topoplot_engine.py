@@ -51,9 +51,12 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
     and returns a base64 png string.
     """
     file_path = get_topoplot_path(protocol, fase, is_normalized, is_baseline)
+    fname = os.path.basename(file_path) if file_path else 'Caminho nulo'
+    
+    print(f"[DEBUG ENGINE] Carregando topoplot: {fname} | Protocol: {protocol} | Group: {group}")
     
     if not file_path or not os.path.exists(file_path):
-         return None, f"Arquivo de dados não encontrado: {os.path.basename(file_path) if file_path else 'Caminho nulo'}"
+         return None, f"Arquivo de dados não encontrado: {fname}"
     
     try:
         df = pd.read_csv(file_path)
@@ -70,7 +73,7 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
         if 'grupo' in df.columns:
             df = df[df['grupo'] == group]
             if df.empty:
-                 return None, f"Grupo {group} não localizado no dataset da fase {fase}."
+                return None, f"Grupo {group} não localizado no dataset {fname} (fase {fase})."
         else:
             return None, "Dados não possuem a coluna 'grupo' para filtro."
 

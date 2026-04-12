@@ -1316,47 +1316,50 @@ def update_fase_options_psd(prot):
         opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
     return opts, 'estimulacao'
 
-@app.callback(
-    [Output({'type': 'topo-fase-dropdown', 'index': MATCH}, 'options'),
-     Output({'type': 'topo-fase-dropdown', 'index': MATCH}, 'value')],
-    [Input({'type': 'topo-prot-dropdown', 'index': MATCH}, 'value')]
-)
-def update_fase_options_topo(prot):
-    if prot == 'C':
-        opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
-    else:
-        opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
-    return opts, 'estimulacao'
-
+# --- Topoplot Callbacks Consolidado ---
 @app.callback(
     [Output({'type': 'topo-group-container', 'index': MATCH}, 'style'),
      Output({'type': 'topo-group-dropdown', 'index': MATCH}, 'options'),
      Output({'type': 'topo-group-dropdown', 'index': MATCH}, 'value'),
      Output({'type': 'topo-norm-container', 'index': MATCH}, 'style'),
-     Output({'type': 'topo-fase-container', 'index': MATCH}, 'style')],
+     Output({'type': 'topo-fase-container', 'index': MATCH}, 'style'),
+     Output({'type': 'topo-fase-dropdown', 'index': MATCH}, 'options'),
+     Output({'type': 'topo-fase-dropdown', 'index': MATCH}, 'value')],
     [Input({'type': 'topo-prot-dropdown', 'index': MATCH}, 'value')]
 )
 def update_topo_protocol_options(prot):
+    if not prot:
+        return {'display': 'none'}, [], None, {'display': 'none'}, {'display': 'none'}, [], None
+
     style_group = {'display': 'none'}
-    opts = []
-    val = None
+    group_opts = []
+    group_val = None
     style_norm = {'display': 'none'}
     style_fase = {'display': 'block'}
     
+    # Fase options logic (A/B share same, C differs)
+    if prot == 'C':
+        fase_opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    else:
+        fase_opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+    
+    fase_val = 'estimulacao'
+    
     if prot == 'A':
         style_group = {'display': 'block'}
-        opts = [{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}]
-        val = 'CV'
+        group_opts = [{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}]
+        group_val = 'CV'
     elif prot == 'B':
         style_group = {'display': 'block'}
-        opts = [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}]
-        val = 'CF'
+        group_opts = [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}]
+        group_val = 'CF'
     elif prot == 'C':
         style_norm = {'display': 'block'}
     elif prot == 'baseline_C':
         style_fase = {'display': 'none'}
+        fase_val = None # Not used
         
-    return style_group, opts, val, style_norm, style_fase
+    return style_group, group_opts, group_val, style_norm, style_fase, fase_opts, fase_val
 
 @app.callback(
     Output('topo-controls-2-wrapper', 'style'),
@@ -1397,6 +1400,14 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
         is_baseline = (prot == 'baseline_C')
         
         real_prot = 'C' if is_baseline else prot
+        
+        # --- Segurança Extra: Forçar grupo correto para o protocolo ---
+        if prot == 'A' and group not in ['CV', 'SV']:
+            group = 'CV'
+        elif prot == 'B' and group not in ['CF', 'SF']:
+            group = 'CF'
+            
+        print(f"[DEBUG TOPO] Panel {i+1} | Prot: {prot} | Fase: {fase} | Group: {group} | Baseline: {is_baseline}")
         
         img_b64, err = generate_topoplot_grid_base64(
             protocol=real_prot, fase=fase, group=group, 
