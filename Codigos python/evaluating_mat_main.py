@@ -418,35 +418,38 @@ resultado = mc.tukeyhsd()
 print(resultado.summary())
 print('---'*100)
 
-# --------------------------------------- Plots ---------------------------------------
+#%% --------------------------------------- Plots ---------------------------------------
+
+x = 'grupo'
+y= 'Proporção espacial y'
 
 # 1. Dotplot
 ev.dot_ic_sig(
     df=df_protB,
-    x='grupo_complexidade',
-    y='Desempenho',
-    order=df_protB['grupo_complexidade'].unique(),  
+    x=x,
+    y=y,
+    order=df_protB[x].unique(),  
     alpha=0.05,
     show_sig_bars=True, 
     show_p_text=False,          # True para escrever p-values
     ylim=(0, 1.1),
-    title='Prot B — grupo_complexidade'
+    title=f'Prot B — {x}'
 )
 
-# 2. Barplot
+#%% 2. Barplot
 ev.bar_ic95(
     df=df_protB,
-    x='grupo_complexidade',
+    x=x,
     y='Desempenho',
     hue='grupo',                            # coluna do grupo
     hue_order=['CF','SF'],                  # opcional
     palette={'CF':'#4C78B8','SF':'#F58518'},  # opcional (ou passe lista de cores)
     ylim=(0, 1.1),
     rotate_xticks=45,
-    title='Prot B — grupo_complexidade'
+    title=f'Prot B — {x}'
 )
 
-# 3. Interaction Plot
+#%% 3. Interaction Plot
 # 3.1. Desempenho × Grupo (linhas = Complexidade)
 # 3.1.1. Não Facetado 
 (fig, axes), stats = ev.interaction_plot(
@@ -506,7 +509,7 @@ caracteristicas = ['Proporção espacial x', 'Proporção espacial y','Acuracia'
 #caracteristicas = ['Acuracia',
 #               'Similaridade', 'Especificidade']
 x1 = df_protA[caracteristicas].to_numpy() #vetor de características
-for classe in ['grupo', 'grupo_complexidade','grupo_complexidade_overlap']:
+for classe in ['grupo', x,'grupo_complexidade_overlap']:
     print('--'*100)
     print(f'Classe: {classe}')
     y1 = df_protA[classe].to_numpy() #vetor de classes
@@ -530,7 +533,7 @@ caracteristicas = ['Proporção espacial x', 'Proporção espacial y','Acuracia'
 #caracteristicas = ['Acuracia',
 #               'Similaridade', 'Especificidade']
 x1 = df_protB[caracteristicas].to_numpy() #vetor de características
-for classe in ['grupo', 'grupo_complexidade']:
+for classe in ['grupo', x]:
     print('--'*100)
     print(f'Classe: {classe}')
     y1 = df_protB[classe].to_numpy() #vetor de classes
@@ -543,7 +546,7 @@ for classe in ['grupo', 'grupo_complexidade']:
 # %% Fazendo os plots de CDA
 #%% Protocolo A
 x1 = df_protA[caracteristicas].to_numpy() #vetor de características
-for classe in ['grupo', 'grupo_complexidade','grupo_complexidade_overlap','Overlap', 'Complexidade']:
+for classe in ['grupo', x,'grupo_complexidade_overlap','Overlap', 'Complexidade']:
     print('--'*100)
     print(f'Classe: {classe}')
     y1 = df_protA[classe].to_numpy() #vetor de classes
@@ -629,3 +632,4 @@ print('Teste-t para propy entre CF x SF (com outlier)')
 print(f"T-statistic = {t_stat:.3f}")
 print(f"P-value = {p_value:.4f}")
 print('--'*20)
+# %%
