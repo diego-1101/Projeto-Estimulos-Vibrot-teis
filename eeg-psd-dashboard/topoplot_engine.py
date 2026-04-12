@@ -256,3 +256,35 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db):
     fig.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=120)
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode('utf-8'), stats_data, f"T-Test (Panel 1 vs 2) | n1={n1}, n2={n2} | p < 0.05 highlighted with X."
+
+def get_channel_reference_base64():
+    """
+    Gera uma imagem estática da cabeça com as posições e nomes dos 32 canais usados no projeto.
+    """
+    try:
+        # Create a standard montage
+        montage = mne.channels.make_standard_montage('standard_1020')
+        
+        # Select specifically the channels we use (from CH_MAPPING)
+        target_channels = [ch for ch in CH_MAPPING.values()]
+        
+        # Info object for plotting sensors
+        info = mne.create_info(ch_names=target_channels, sfreq=1000., ch_types='eeg')
+        info.set_montage(montage)
+        
+        # Plot
+        fig, ax = plt.subplots(figsize=(5, 5))
+        mne.viz.plot_sensors(info, show_names=True, axes=ax, show=False, pointsize=20, linewidth=1)
+        
+        # Tight layout and transparent background for premium look
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=100)
+        plt.close(fig)
+        buf.seek(0)
+        img_str = base64.b64encode(buf.read()).decode('utf-8')
+        return img_str
+    except Exception as e:
+        print(f"Error generating channel reference: {e}")
+        return None

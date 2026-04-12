@@ -16,7 +16,7 @@ from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
 from anova_engine import compute_anova_and_plot
 from psd_visualizer import create_psd_subplots
-from topoplot_engine import generate_topoplot_grid_base64, generate_topoplot_comparison_base64
+from topoplot_engine import generate_topoplot_grid_base64, generate_topoplot_comparison_base64, get_channel_reference_base64
 import os
 
 # Load Quick Guide Content
@@ -807,6 +807,18 @@ def get_topoplot_layout():
 
             html.Button("Run Topoplot", id='run-topo-btn', className="btn btn-primary w-100"),
             html.Hr(),
+            
+            # --- Channel Reference Map Card ---
+            html.Div([
+                html.Details([
+                    html.Summary("📍 Channel Reference Map", style={'cursor': 'pointer', 'fontWeight': 'bold'}),
+                    html.Div([
+                        html.P("Mapping of the 32 channels used (Standard 10-20)", className="text-muted small mb-2"),
+                        html.Img(src=f"data:image/png;base64,{get_channel_reference_base64()}", style={'width': '100%', 'height': 'auto'})
+                    ], className="text-center p-2")
+                ], open=False)
+            ], className="card p-2 mt-3 bg-light shadow-sm"),
+
             html.Div(id='topo-info-panel', className="card p-3 mt-3 text-muted", style={'fontSize': '0.9em'})
         ], className="sidebar"),
         
