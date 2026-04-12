@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np 
 import seaborn as sns
 import matplotlib.pyplot as plt 
+from pathlib import Path
 import os
 import re
 # Função para transformar os dados retirados de .mat para data frame organizado
@@ -893,22 +894,34 @@ for ind in df_especifico_norm['psd_ProtA_CV_especifico_df_norm'].index:
 for ind in df_especifico['psd_ProtA_CV_especifico_df'].index:
     plot_bandas_psd(df_master = df_especifico['psd_ProtA_CV_especifico_df'], ind  = ind,faixa_total =(0,100), titulo_prefixo='Protocolo A CV geral',escala_db=False)'''
 
-#%% Fazendo a PLSC
+#%% Preparando os dados para as análises multivariadas feitas no site do dashboard e através da PLS
+
+# Escolhendo se vamos fazer com a fases de Estimulção(protA e protB)/Exploracao(ProtC) ou Execução (protA, protB e protC) 
+fase = 2 # 1-> Estimulação/Exploracao, 2-> Execucao 
 
 # 1) Pegando os dados de desempenho
 df_protA = pd.read_csv('df_protA.csv')
+df_A = pd.read_csv('df_protocoloA_tempos_com_t1_corrigido.csv',parse_dates=['Tempo 1 Corrigido'])['Tempo 1 Corrigido'] # correção do tempo 1
+df_protA = pd.concat([df_protA,df_A], axis = 1)
 df_protB = pd.read_csv('df_protB.csv')
 df_protC = pd.read_csv('df_protC.csv')
 
-df_A = df_protA[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho', 'Complexidade']]
+df_A = df_protA[['Tempo 1', 'Tempo 1 Corrigido', 'Tempo 2',
+                 'Tempo 3','ID','grupo','Desempenho', 'Complexidade', 'Overlap', 
+                 'Proporção espacial x', 'Proporção espacial y']]
 df_A['ID'] = df_A['ID'].str.replace('df_', '', regex=False)
 
-df_B = df_protB[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho', 'Complexidade']]
+df_B = df_protB[['Tempo 1','Tempo 2','Tempo 3','ID','grupo','Desempenho', 'Complexidade',
+                 'Proporção espacial x', 'Proporção espacial y']]
 df_B['ID'] = df_B['ID'].str.replace('df_', '', regex=False)
 
-df_C = df_protC[df_protC['Fase'] == 'Fase Execucao']
+if fase == 1:
+    df_C = df_protC[df_protC['Fase'] == 'Fase Exploracao']
+else:
+    df_C = df_protC[df_protC['Fase'] == 'Fase Execucao']
 col_traj = [c for c in df_C.columns if 'ero da Traj' in c][0]
-df_C = df_C[['Tempo 1','Tempo 2', 'ID','Desempenho', 'Complexidade', col_traj]]
+df_C = df_C[['Tempo 1','Tempo 2', 'ID','Desempenho', 'Complexidade', 'Proporção espacial x', 
+             'Proporção espacial y', col_traj]]
 df_C.rename(columns={col_traj: 'n_traj'}, inplace=True)
 df_C['ID'] = df_C['ID'].str.replace('df_', '', regex=False)
 
@@ -1027,7 +1040,7 @@ for nome_arquivo in todas_as_pastas:
 
         # 3. Tratamento da coluna Protocolo
         # Padroniza para maiúsculas e lida com as variações 'oa'/'of'
-        print(protocolo_final)
+        #print(protocolo_final)
         if (protocolo_final == 'oa') or (protocolo_final == 'of'):
             protocolo = protocolo_final.upper()
         elif protocolo_final.startswith('P'): 
@@ -1079,7 +1092,8 @@ for _, linha in df_A.iterrows():
 df_A['Tempo_inicio'] = pd.to_datetime(tempos_inicio)
 
 #Colunas de variação de cada tempo em um formato legível
-df_A['Delta_t1'] = (df_A['Tempo 1'] - df_A['Tempo_inicio'])
+#df_A['Delta_t1'] = (df_A['Tempo 1'] - df_A['Tempo_inicio'])
+df_A['Delta_t1'] = (df_A['Tempo 1 Corrigido'] - df_A['Tempo_inicio'])
 df_A['Delta_t2'] = df_A['Tempo 2'] - df_A['Tempo_inicio']
 df_A['Delta_t3'] = df_A['Tempo 3'] - df_A['Tempo_inicio']
 #Delta em segundos
@@ -1113,8 +1127,7 @@ for _, linha in df_C.iterrows():
 df_C['Tempo_inicio'] = pd.to_datetime(tempos_inicio)
 
 
-'''
-Seria isso caso a Bruna não tivesse feito alguns cortes no sinal original
+''' Seria isso caso a Bruna não tivesse feito alguns cortes no sinal original
 Como ela precisou fazer uns cortes e concatenou um atrás do outro, 
     a lógica do tempo 1 e do tempo 2 se alteraram, por isso 
     eu estou comentando essa parte.
@@ -1139,13 +1152,8 @@ df_C['d2_s'] = 0
 # Pegando o tamanho de cada trial
 df_C['tamanho_original_trial'] = df_C['Tempo 2'] - df_C['Tempo 1']
 df_C['tamanho_original_trial'] = df_C['tamanho_original_trial'].dt.total_seconds()
+
 # Corrigindo o protocolo C
-
-'''
-A Bruna teve que fazer alguns cortes no sinl original do EEG por conta de artefatos.
-Estes cortes geraram problemas de desíncronização entre os 
-'''
-
 #lendo os arquivos que diz o que foi cortado
 cortes = pd.read_csv(r'Arquivos Auxiliares\cortes_por_ID_trial_protC.csv')
 
@@ -1160,10 +1168,6 @@ cortes['ID'] = cortes['ID'].str.replace(r'ID(\d+)', r'ID_\1', regex=True)
 cortes['Trial'] = cortes['Trial'].str.extract(r'(\d+)')[0].astype(int)
 
 # 1) cortar conforme a lógica considerando os cortes dos ruídos 
-import os, re
-import numpy as np
-import pandas as pd
-from scipy.io import loadmat
 PADRAO_ID_ARQUIVO = re.compile(r"ID_?(\d+)") 
 
 
@@ -1245,15 +1249,8 @@ for idx, row in df_C.iterrows():
             d2_anterior = float(df_C.iloc[idx]['d1_s']) +  float(row['tamanho_original_trial']) 
     id_anterior = row['ID']
     
-
-
 #%% Cortando os dados 
-import os, re
-import numpy as np
-import pandas as pd
-from scipy.io import loadmat
-
-FS = 1000  # Hz (ajuste se necessário)
+FS = 1000  # Hz 
 
 # ---------------- helpers ----------------
 def ensure_output_cols(df: pd.DataFrame):
@@ -1290,7 +1287,7 @@ def cut_and_fill(df: pd.DataFrame, id_value: str, protocolo: str,
         if i1 <= i0:
             df.at[idx, 'Trecho_eeg'] = None
             df.at[idx, '_trecho_info'] = f'intervalo inválido ({i0}, {i1})'
-            #print(f'd1_s: {int(round(t0 * fs))}, d2_s: {int(round(t1 * fs))}, n ={n}\n i0: {i0}, i1:{i1}')
+            print(f'd1_s: {int(round(t0 * fs))}, d2_s: {int(round(t1 * fs))}, n ={n}\n i0: {i0}, i1:{i1}')
             continue
 
         trecho = {ch: sig[i0:i1].copy() for ch, sig in eeg_dict.items()}
@@ -1306,11 +1303,18 @@ ensure_output_cols(df_B)
 ensure_output_cols(df_C)
 
 # mapeamento de como cortar por protocolo
-PROTO_RULES = {
-    'A': {'df': df_A, 'start_col': 'd2_s', 'end_col': 'd3_s'},        # d2 -> d3
-    'B': {'df': df_B, 'start_col': 'd1_s', 'end_col': 'd2_s'},        # d1 -> d2
-    'C': {'df': df_C, 'start_col': 'd1_s', 'end_col': 'd2_s'},        # d1 -> d2 (df_C não tem d3_s)
-}
+if fase == 1:
+    PROTO_RULES = {
+        'A': {'df': df_A, 'start_col': 'd1_s', 'end_col': 'd2_s'},        # d1 -> d2
+        'B': {'df': df_B, 'start_col': 'd1_s', 'end_col': 'd2_s'},        # d1 -> d2
+        'C': {'df': df_C, 'start_col': 'd1_s', 'end_col': 'd2_s'},        # d1 -> d2 (df_C não tem d3_s)
+    }
+else:
+    PROTO_RULES = {
+        'A': {'df': df_A, 'start_col': 'd2_s', 'end_col': 'd3_s'},        # d2 -> d3
+        'B': {'df': df_B, 'start_col': 'd2_s', 'end_col': 'd3_s'},        # d2 -> d3
+        'C': {'df': df_C, 'start_col': 'd1_s', 'end_col': 'd2_s'},        # d1 -> d2 (df_C não tem d3_s, só muda a fase)
+    }
 
 # ---------------- regex ----------------
 PADRAO_ID_ARQUIVO = re.compile(r"ID_?(\d+)") 
@@ -1320,7 +1324,7 @@ PADRAO_PROTOCOLO_PASTA = re.compile(r".*(prot[A-Za-z]_[A-Z]{2,2}|prot[C,c,c])_ma
 lista_geral = [l for l in os.listdir(r'D:\dados_pro_diego\arquivos_filtrados_mat')
                if l.startswith('filtrado geral_p')]
 
-
+tres_canais = False #variável que controla se queremos todos os canais ou apenas CZ, C3 e C4
 for pasta in lista_geral:
     m_prot = PADRAO_PROTOCOLO_PASTA.match(pasta)
     if not m_prot:
@@ -1349,18 +1353,25 @@ for pasta in lista_geral:
         # carrega EEG do .mat
         data = loadmat(rf'D:\dados_pro_diego\arquivos_filtrados_mat\{pasta}\{arquivo}')
         eeg  = data['eeg_data']  # ajuste se o nome do campo for outro
+        
+        if tres_canais:
+            for i in range(0,data['chanlocs'].shape[-1]):
+                if str(data['chanlocs'][0][i][0][0]) == 'CZ':
+                    idx_CZ = i
+                elif str(data['chanlocs'][0][i][0][0]) == 'C3':
+                    idx_C3 = i
+                elif str(data['chanlocs'][0][i][0][0]) == 'C4':
+                    idx_C4 = i
 
-        for i in range(0,data['chanlocs'].shape[-1]):
-            if str(data['chanlocs'][0][i][0][0]) == 'CZ':
-                idx_CZ = i
-            elif str(data['chanlocs'][0][i][0][0]) == 'C3':
-                idx_C3 = i
-            elif str(data['chanlocs'][0][i][0][0]) == 'C4':
-                idx_C4 = i
+            # canais (ajuste os índices se necessário)
+            eeg_dict = {'CZ': eeg[idx_CZ], 'C3': eeg[idx_C3], 'C4': eeg[idx_C4]}
+        else: 
+            nome_canais=[]
+            for i in range(0,data['chanlocs'].shape[-1]):
+                nome_canais.append(str(data['chanlocs'][0][i][0][0]).strip())
 
-        # canais (ajuste os índices se necessário)
-        eeg_dict = {'CZ': eeg[idx_CZ], 'C3': eeg[idx_C3], 'C4': eeg[idx_C4]}
-
+            eeg_dict = {canal: eeg[i].copy() for i, canal in enumerate(nome_canais)}
+            
         # corta e preenche as linhas correspondentes no DF correto
         cut_and_fill(df_target, ind, protocolo, eeg_dict, FS, start_col, end_col)
 
@@ -1387,21 +1398,30 @@ for pasta in lista_baseline_geral:
         data = loadmat(rf'D:\dados_pro_diego\arquivos_filtrados_mat\{pasta}\{arquivo}')
         eeg  = data['eeg_data']
 
-        for i in range(0,data['chanlocs'].shape[-1]):
-            if str(data['chanlocs'][0][i][0][0]) == 'CZ':
-                idx_CZ = i
-            elif str(data['chanlocs'][0][i][0][0]) == 'C3':
-                idx_C3 = i
-            elif str(data['chanlocs'][0][i][0][0]) == 'C4':
-                idx_C4 = i
         #Downsample para 1000Hz
         eeg = signal.resample_poly(
                     eeg, 
                     up=1, 
                     down=2, 
                     axis=1)  # <-- eixo dos sinais
-        # pegando EEG dos canais CZ C3 e C4
-        eeg_dict = {'CZ': eeg[idx_CZ], 'C3': eeg[idx_C3], 'C4': eeg[idx_C4]}
+        
+        if tres_canais:
+            # pegando EEG dos canais CZ C3 e C4
+            for i in range(0,data['chanlocs'].shape[-1]):
+                if str(data['chanlocs'][0][i][0][0]) == 'CZ':
+                    idx_CZ = i
+                elif str(data['chanlocs'][0][i][0][0]) == 'C3':
+                    idx_C3 = i
+                elif str(data['chanlocs'][0][i][0][0]) == 'C4':
+                    idx_C4 = i
+            eeg_dict = {'CZ': eeg[idx_CZ], 'C3': eeg[idx_C3], 'C4': eeg[idx_C4]}
+        else: 
+            nome_canais=[]
+            for i in range(0,data['chanlocs'].shape[-1]):
+                nome_canais.append(str(data['chanlocs'][0][i][0][0]).strip())
+
+            eeg_dict = {canal: eeg[i].copy() for i, canal in enumerate(nome_canais)}
+        
         ind.append(m_id)
         eeg_signal.append(eeg_dict)
         grupo.append(protocolo)
@@ -1414,18 +1434,19 @@ df_baseline = {
 df_baseline = pd.DataFrame(df_baseline)  
 
 #%% Calculando a PSD 
-#Adicionando mais colunas so para um teste
-df_A['Acuracia'] = df_protA['Acuracia']
-df_A['Especificidade'] = df_protA['Especificidade']
-df_A['Similaridade'] = df_protA['Similaridade']
-df_B['Acuracia'] = df_protB['Acuracia']
-df_B['Especificidade'] = df_protB['Especificidade']
-df_B['Similaridade'] = df_protB['Similaridade']
-df_C['Acuracia'] =[c for c in df_protC[df_protC['Fase']== 'Fase Execucao']["Acuracia"]]
-df_C['Similaridade'] = [c for c in df_protC[df_protC['Fase']== 'Fase Execucao']["Similaridade"]]
-df_C['Especificidade'] = [c for c in 1 - df_protC[df_protC['Fase']== 'Fase Execucao']["Taxa de Falsos Positivos"]]
+if fase == 2:
+    #Adicionando as colunas que Y pode assumir alem do desempenho
+    df_A['Acuracia'] = df_protA['Acuracia']
+    df_A['Especificidade'] = df_protA['Especificidade']
+    df_A['Similaridade'] = df_protA['Similaridade']
+    df_B['Acuracia'] = df_protB['Acuracia']
+    df_B['Especificidade'] = df_protB['Especificidade']
+    df_B['Similaridade'] = df_protB['Similaridade']
+    df_C['Acuracia'] =[c for c in df_protC[df_protC['Fase']== 'Fase Execucao']["Acuracia"]]
+    df_C['Similaridade'] = [c for c in df_protC[df_protC['Fase']== 'Fase Execucao']["Similaridade"]]
+    df_C['Especificidade'] = [c for c in 1 - df_protC[df_protC['Fase']== 'Fase Execucao']["Taxa de Falsos Positivos"]]
 
-# Removendo as que deram problemas 
+# Removendo as que deram problemas no corte 
 erro_A = df_A[df_A['_trecho_info']!='ok']['ID'].unique()
 
 df_A_final = df_A[~df_A['ID'].isin(erro_A)] #Pego todos as linhas que não tem problema "~" serve para eu pegar ao contrário dos que estão dentro dos erros
@@ -1439,7 +1460,7 @@ erro_C = df_C[df_C['_trecho_info']!='ok']['ID'].unique()
 df_C_final = df_C[~df_C['ID'].isin(erro_C)]
 
 
-#%% Calculo da psd dos trechos e já normalizando pela baseline
+#Calculo da psd dos trechos e já normalizando pela baseline
 
 '''
 Cada protocolo tem sua especificidade.
@@ -1540,20 +1561,50 @@ def add_bandpowers_per_channel(
     bands: dict | None = None,
     channels: tuple[str, ...] = ("CZ", "C3", "C4"),
     psd_col: str = "psd_trecho",
-    prefix: str = "psd",                 # prefixo das colunas criadas
-    normalize_by_bandwidth: bool = False # se True, divide pela largura da banda (média por Hz)
+    prefix: str = "psd",
+    normalize_by_bandwidth: bool = False
 ) -> pd.DataFrame:
     """
-    Cria colunas com potência por banda PARA CADA CANAL, a partir de `psd_col`.
+    Cria colunas com potência total e potência por banda PARA CADA CANAL,
+    a partir de `psd_col`.
 
-    Espera por linha: df[psd_col] = {'CZ': (f, Pxx), 'C3': (f, Pxx), 'C4': (f, Pxx)}.
-    Cria colunas no padrão: {prefix}_{banda}_{canal}, ex.: psd_delta_CZ, psd_theta_C3, ...
+    Espera por linha:
+        df[psd_col] = {'CZ': (f, Pxx), 'C3': (f, Pxx), 'C4': (f, Pxx), ...}
 
-    bands: dict como {"delta": (0.5,4), "theta": (4,8), "alfa": (8,13), "beta": (13,30), "gamma": (30,60)}
-    channels: canais presentes no dict da PSD (keys do psd_trecho)
-    normalize_by_bandwidth: se True, retorna potência média por Hz (bandpower/Δf).
+    Cria colunas no padrão:
+        Potência total:
+            {prefix}_total_{canal}
+            ex.: psd_total_CZ, psd_total_C3, psd_total_C4
+
+        Potência por banda:
+            {prefix}_{banda}_{canal}
+            ex.: psd_delta_CZ, psd_theta_C3, ...
+
+    As colunas de potência total são inseridas ANTES das colunas de potência por banda.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame de entrada.
+    bands : dict | None
+        Ex.: {"delta": (0.5,4), "theta": (4,8), "alfa": (8,13), "beta": (13,30), "gamma": (30,60)}
+    channels : tuple[str, ...]
+        Canais esperados no dicionário de PSD.
+    psd_col : str
+        Nome da coluna que contém os dicionários com PSD por canal.
+    prefix : str
+        Prefixo das colunas criadas.
+    normalize_by_bandwidth : bool
+        Se True, divide a potência da banda pela largura da banda (média por Hz).
+        Para a potência total, divide pela largura total do espectro disponível.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame com as novas colunas adicionadas e reordenadas.
     """
-    # bandas padrão (Hz)
+    df = df.copy()
+
     if bands is None:
         bands = {
             "delta": (0.5, 4),
@@ -1563,172 +1614,213 @@ def add_bandpowers_per_channel(
             "gamma": (30, 60),
         }
 
-    # garantir que as colunas existem (preenche com NaN)
-    for banda in bands.keys():
-        for ch in channels:
-            colname = f"{prefix}_{banda}_{ch}"
-            if colname not in df.columns:
-                df[colname] = np.nan
-
-    def _bandpower(sig_psd_item, f_lo, f_hi):
-        """Calcula potência (ou potência média por Hz) em [f_lo, f_hi] para um (f,Pxx)."""
+    # ---------------- helpers ----------------
+    def _integrate_psd(sig_psd_item, f_lo=None, f_hi=None):
+        """
+        Calcula potência integrando a PSD.
+        Se f_lo/f_hi forem None, integra toda a faixa disponível.
+        """
         if sig_psd_item is None:
             return np.nan
+
         f, Pxx = sig_psd_item
         if f is None or Pxx is None:
             return np.nan
+
         f = np.asarray(f).ravel()
         Pxx = np.asarray(Pxx).ravel()
 
-        mask = (f >= f_lo) & (f <= f_hi) & np.isfinite(Pxx)
+        valid = np.isfinite(f) & np.isfinite(Pxx)
+        if valid.sum() < 2:
+            return np.nan
+
+        f = f[valid]
+        Pxx = Pxx[valid]
+
+        if f_lo is None and f_hi is None:
+            mask = np.ones_like(f, dtype=bool)
+        else:
+            mask = np.ones_like(f, dtype=bool)
+            if f_lo is not None:
+                mask &= (f >= f_lo)
+            if f_hi is not None:
+                mask &= (f <= f_hi)
+
         if mask.sum() < 2:
             return np.nan
 
-        bp = np.trapz(Pxx[mask], f[mask])  # integral da PSD na banda
-        if normalize_by_bandwidth:
-            bw = (f_hi - f_lo)
-            if bw > 0:
-                bp = bp / bw
-        return float(bp)
+        f_sel = f[mask]
+        Pxx_sel = Pxx[mask]
 
-    # preencher linha a linha
+        power = np.trapz(Pxx_sel, f_sel)
+
+        if normalize_by_bandwidth:
+            bw = f_sel.max() - f_sel.min()
+            if bw > 0:
+                power = power / bw
+
+        return float(power)
+
+    # ---------------- criar colunas ----------------
+    total_cols = []
+    band_cols = []
+
+    # colunas de potência total primeiro
+    for ch in channels:
+        colname = f"{prefix}_total_{ch}"
+        total_cols.append(colname)
+        if colname not in df.columns:
+            df[colname] = np.nan
+
+    # depois colunas por banda
+    for banda in bands.keys():
+        for ch in channels:
+            colname = f"{prefix}_{banda}_{ch}"
+            band_cols.append(colname)
+            if colname not in df.columns:
+                df[colname] = np.nan
+
+    # ---------------- preencher linha a linha ----------------
     for idx, psd_dict in df[psd_col].items():
         if not isinstance(psd_dict, dict):
-            # deixa NaN nas colunas já criadas
             continue
+
+        # potência total por canal
+        for ch in channels:
+            total_col = f"{prefix}_total_{ch}"
+            val_total = _integrate_psd(psd_dict.get(ch, None), f_lo=None, f_hi=None)
+            df.at[idx, total_col] = val_total
+
+        # potência por banda por canal
         for banda, (f_lo, f_hi) in bands.items():
             for ch in channels:
-                colname = f"{prefix}_{banda}_{ch}"
-                val = _bandpower(psd_dict.get(ch, None), f_lo, f_hi)
-                df.at[idx, colname] = val
+                band_col = f"{prefix}_{banda}_{ch}"
+                val_band = _integrate_psd(psd_dict.get(ch, None), f_lo=f_lo, f_hi=f_hi)
+                df.at[idx, band_col] = val_band
+
+    # ---------------- reordenar colunas ----------------
+    # mantém a ordem original das demais colunas, mas coloca as novas
+    # em bloco: total primeiro, bandas depois
+    created_cols = total_cols + band_cols
+    other_cols = [c for c in df.columns if c not in created_cols]
+    df = df[other_cols + total_cols + band_cols]
 
     return df
 
-nperseg = 2048 #(potencia de dois mais proxima de FS*2)
-noverlap=1024 #nperseg//2
+nperseg = int(2**(np.ceil(np.log2(2*FS))))# 2048 (potencia de dois mais proxima de FS*2)
+noverlap= int(nperseg//2) # 1024 (nperseg//2)
 
-df_A_final = add_psd_column(df_A_final, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)
-df_B_final =  add_psd_column(df_B_final, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)  
-df_C_final = add_psd_column(df_C_final, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)
-df_baseline = add_psd_column(df_baseline, fs=1000, window="hann", nperseg = nperseg, noverlap=noverlap)
+channels_list= ['FP1', 'FP2', 'FZ', 'F3', 'F4', 'F7', 'F8', 'CZ', 'C3', 'C4', 'T7', 'T8', 'P7', 
+                'P8', 'PZ', 'P3', 'P4', 'O1', 'O2', 'FCZ', 'FC1', 'FC2', 'FC3', 'OZ', 'C2', 'CP1', 
+                'CP3', 'CP4', 'C1', 'FC4', 'CPZ', 'CP2']
 
-df_A_final = add_bandpowers_per_channel(df_A_final)
-df_B_final = add_bandpowers_per_channel(df_B_final)
-df_C_final = add_bandpowers_per_channel(df_C_final)
-df_baseline = add_bandpowers_per_channel(df_baseline)
+# Fazendo o calculo da psd em cima dos protocolos 
+df_A_final = add_psd_column(df_A_final, fs=1000, window="hann", channels=channels_list, nperseg = nperseg, noverlap=noverlap)
+df_B_final =  add_psd_column(df_B_final, fs=1000, window="hann",channels=channels_list, nperseg = nperseg, noverlap=noverlap)  
+df_C_final = add_psd_column(df_C_final, fs=1000, window="hann", channels=channels_list,nperseg = nperseg, noverlap=noverlap)
+df_baseline = add_psd_column(df_baseline, fs=1000, window="hann", channels=channels_list,nperseg = nperseg, noverlap=noverlap)
 
-#Reordenando as colunas
-ordem_colunas = ['Tempo 1', 'Tempo 2', 'Tempo 3', 'ID', 'grupo', 'Desempenho','Acuracia',
-                 'Similaridade', 'Especificidade',
-                 'Protocolo','Complexidade', 'Tempo_inicio', 'Delta_t1', 'Delta_t2', 'Delta_t3', 
-                 'd1_s','d2_s', 'd3_s', 'Trecho_eeg', 'idx_ini', 'idx_fim', 
-                 'n_amostras','_trecho_info',
-                'psd_delta_CZ', 'psd_theta_CZ', 'psd_alfa_CZ', 'psd_beta_CZ', 'psd_gamma_CZ',
-                'psd_delta_C3', 'psd_theta_C3', 'psd_alfa_C3', 'psd_beta_C3', 'psd_gamma_C3',
-                'psd_delta_C4', 'psd_theta_C4', 'psd_alfa_C4', 'psd_beta_C4', 'psd_gamma_C4',
-                'psd_trecho']
-df_A_final = df_A_final[[col for col in ordem_colunas if col in df_A_final.columns]]
-df_B_final = df_B_final[[col for col in ordem_colunas if col in df_B_final.columns]]
-ordem_colunas_C = [c for c in ordem_colunas if c in df_C_final.columns] + [c for c in df_C_final.columns if c not in ordem_colunas]
-df_C_final = df_C_final[ordem_colunas_C]
-df_baseline = df_baseline[['ID','grupo','Trecho_eeg', 'psd_trecho','psd_delta_CZ', 'psd_theta_CZ', 'psd_alfa_CZ', 'psd_beta_CZ', 'psd_gamma_CZ',
-                'psd_delta_C3', 'psd_theta_C3', 'psd_alfa_C3', 'psd_beta_C3', 'psd_gamma_C3',
-                'psd_delta_C4', 'psd_theta_C4', 'psd_alfa_C4', 'psd_beta_C4', 'psd_gamma_C4',]]
+# Fazendo o cálculo da potência total e por bandas para cada canal
+df_A_final = add_bandpowers_per_channel(df_A_final,channels=channels_list)
+df_B_final = add_bandpowers_per_channel(df_B_final,channels=channels_list)
+df_C_final = add_bandpowers_per_channel(df_C_final,channels=channels_list)
+df_baseline = add_bandpowers_per_channel(df_baseline,channels=channels_list)
 
-#%%Normalizando pela baseline
-relacoes_A = {
-    'CV': 'Baseline OA',
-    'SV': 'Baseline OF'
-}
+#%% Normalizando pela baseline
+if fase == 1:
+    relacoes_A = {
+        'CV': 'Baseline OF', # Na estimulação -> OF, na execução -> OA
+        'SV': 'Baseline OF'
+    }
+else:
+    relacoes_A = {
+        'CV': 'Baseline OA', # Na estimulação -> OF, na execução -> OA
+        'SV': 'Baseline OF'
+    }
 relacoes_B = {
     'CF': 'Baseline OF',
     'SF': 'Baseline OF'
 }
 relacao_C = 'Baseline OA'
 
-'''def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
-    #df_a_normalizar = df_A_final.copy()
+
+def normalizar_bandas(df_a_normalizar, df_baseline, relacoes):
     """
-    Normaliza as potências de bandas de EEG de um DataFrame de tarefa (df_a_normalizar)
-    em relação aos valores correspondentes de baseline (df_baseline), criando novas
-    colunas com os valores normalizados.
+    Normaliza colunas PSD de df_a_normalizar pelas respectivas colunas PSD
+    de df_baseline, criando novas colunas no formato:
 
-    A função percorre cada linha de df_a_normalizar, identifica o participante (ID)
-    e o grupo experimental, encontra a baseline correspondente (de acordo com o dicionário
-    `relacoes` que mapeia grupo de tarefa → condição de baseline), e divide a potência
-    de cada banda e canal do EEG da tarefa pela potência da respectiva banda e canal
-    da baseline do mesmo participante. O resultado é gravado em novas colunas que
-    começam com o prefixo `psd_norm_`.
+        psd_norm_{banda}_{canal}
 
-    Parâmetros
-    ----------
-    df_a_normalizar : pandas.DataFrame
-        DataFrame contendo os valores de potência espectral (PSD) de cada banda e canal
-        durante a tarefa. Deve conter as colunas:
-            - 'ID' (identificador do participante)
-            - 'grupo' (nome do grupo, ex: 'CF' ou 'SF')
-            - colunas de PSD no formato 'psd_<banda>_<canal>' (ex: 'psd_delta_C3')
-    df_baseline : pandas.DataFrame
-        DataFrame contendo as potências de baseline de cada participante nas condições
-        correspondentes ('Baseline OA' ou 'Baseline OF'), com as mesmas colunas de PSD
-        do DataFrame de tarefa.
-    relacoes : dict
-        Dicionário que relaciona o grupo experimental de df_a_normalizar à condição
-        de baseline correspondente em df_baseline.
-        Exemplo: {'CF': 'Baseline OF', 'SF': 'Baseline OF'}
-
-    Retorna
-    -------
-    pandas.DataFrame
-        O mesmo DataFrame df_a_normalizar, acrescido de novas colunas contendo os valores
-        normalizados das potências PSD (uma para cada coluna de PSD original),
-        nomeadas como `psd_norm_<banda>_<canal>`.
-
-    Notas
-    -----
-    - A normalização é feita elemento a elemento: valor_tarefa / valor_baseline.
-    - Se o mesmo participante não possuir baseline correspondente, a função lançará
-    um erro ao tentar acessar `.iloc[0]` — recomenda-se garantir previamente a correspondência.
-    - A coluna 'psd_trecho' é ignorada no processo de normalização.
-
-    Exemplo de uso
-    --------------
-    >>> relacoes = {'CF': 'Baseline OF', 'SF': 'Baseline OF'}
-    >>> df_norm = normalizar_bandas(df_A_final, df_baseline, relacoes)
-    >>> df_norm.filter(like='psd_norm_').head()
+    Exemplos:
+        psd_total_C3  -> psd_norm_total_C3
+        psd_delta_C3  -> psd_norm_delta_C3
+        psd_beta_CZ   -> psd_norm_beta_CZ
     """
+    df_a_normalizar = df_a_normalizar.copy()
 
-    cols_norm = [f'psd_norm_{c[4:]}' for c in df_a_normalizar.columns if (c.startswith('psd_')) & (c != 'psd_trecho')]
-    df_a_normalizar[cols_norm] = 0
+    # Colunas PSD que serão normalizadas
+    cols_psd = [
+        c for c in df_a_normalizar.columns
+        if c.startswith('psd_')
+        and c != 'psd_trecho'
+        and not c.startswith('psd_norm_')
+    ]
+
+    # Criar colunas normalizadas com NaN inicialmente
+    for col in cols_psd:
+        norm_col = f'psd_norm_{col[4:]}'
+        if norm_col not in df_a_normalizar.columns:
+            df_a_normalizar[norm_col] = np.nan
+
+    # Loop linha a linha
     for idx, row in df_a_normalizar.iterrows():
         ind = row['ID']
-        # Se o df não tiver coluna 'grupo', usa uma baseline fixa (passada em relacoes como string)
+
+        # Define qual baseline usar
         if 'grupo' in df_a_normalizar.columns:
-            grupo = relacoes[row['grupo']]
+            grupo_tarefa = row['grupo']
+            grupo_baseline = relacoes[grupo_tarefa]
         else:
-            grupo = relacoes  # aqui relacoes vira tipo: "Baseline OF" (string)
-        cols = [c for c in df_a_normalizar.columns if (c.startswith('psd_')) & (c != 'psd_trecho') & (not c.startswith('psd_norm_'))]
-        for col in cols:
-            if 'grupo' in df_baseline.columns:
-                mask = (df_baseline['ID'] == ind) & (df_baseline['grupo'] == grupo)
+            grupo_baseline = relacoes  # string, ex: "Baseline OF"
+
+        # Máscara para encontrar a linha da baseline correspondente
+        if 'grupo' in df_baseline.columns:
+            mask = (df_baseline['ID'] == ind) & (df_baseline['grupo'] == grupo_baseline)
+        else:
+            mask = (df_baseline['ID'] == ind)
+
+        baseline_rows = df_baseline.loc[mask]
+
+        if baseline_rows.empty:
+            # Sem baseline correspondente: deixa NaN
+            continue
+
+        baseline_row = baseline_rows.iloc[0]
+
+        # Normalizar cada coluna PSD
+        for col in cols_psd:
+            norm_col = f'psd_norm_{col[4:]}'
+
+            psd_atual = row[col]
+            psd_base = baseline_row[col] if col in baseline_row.index else np.nan
+
+            if pd.isna(psd_atual) or pd.isna(psd_base) or psd_base == 0:
+                valor_normalizado = np.nan
             else:
-                mask = (df_baseline['ID'] == ind)
-            # valor da baseline 
-            psd_baseline_trecho = df_baseline[mask][col].iloc[0]
-            # valor da ser normalizado 
-            psd_atual_trecho = row[col]
-            valor_normalizado = psd_atual_trecho/psd_baseline_trecho
-            #Atribuir esse valor para a df original
-            df_a_normalizar.at[idx, f'psd_norm_{col[4:]}'] = valor_normalizado
+                valor_normalizado = psd_atual / psd_base
+
+            df_a_normalizar.at[idx, norm_col] = valor_normalizado
 
     return df_a_normalizar
 df_A_final = normalizar_bandas(df_a_normalizar= df_A_final, 
                                df_baseline= df_baseline, relacoes= relacoes_A)
 df_B_final = normalizar_bandas(df_a_normalizar= df_B_final, 
                                df_baseline= df_baseline, relacoes= relacoes_B)
+
 df_C_final = normalizar_bandas(df_a_normalizar= df_C_final, 
-                               df_baseline= df_baseline, relacoes= relacao_C)          
-'''
+                               df_baseline= df_baseline, relacoes= relacao_C)     
+
+# Normalização do trecho completo
 def normalizar_trecho(df_a_normalizar,df_baseline,relacoes,tamanho_trecho = 110):
     """
     Normaliza a PSD de um trecho de EEG em relação à PSD da baseline correspondente,
@@ -1819,14 +1911,27 @@ def normalizar_trecho(df_a_normalizar,df_baseline,relacoes,tamanho_trecho = 110)
                 mask = (df_baseline['ID'] == ind) & (df_baseline['grupo'] == grupo)
             else:
                 mask = (df_baseline['ID'] == ind)
+
+            baseline_data = df_baseline[mask]['psd_trecho'].iloc[0].get(ch)
+            row_data = row['psd_trecho'].get(ch)
+            # 2. Verificamos se o canal existe e não é None
+            if (baseline_data is not None) and (row_data is not None):
+                psd_baseline_trecho = baseline_data[1] # Acessa o array de PSD
+                
+                # Cortando o trecho apenas em frequências de interesse
+                psd_baseline_trecho = psd_baseline_trecho[0:tamanho_trecho]
+                
+                # Valor da psd da linha atual daquele canal
+                psd_atual_trecho = row['psd_trecho'][ch][1][0:tamanho_trecho]    
+                
+                # Cálculo da normalização
+                psd_normalizado = psd_atual_trecho / psd_baseline_trecho
+                
+            else:
+                # Caso o canal seja None (como o CP2 no seu print)
+                print(f'Psd do Canal {ch} não encontrado ou é None, provavelmente removido.')
+                psd_normalizado = None
             
-            psd_baseline_trecho = df_baseline[mask]['psd_trecho'].iloc[0][ch][1] #psd da baseline
-            #cortando o trecho apenas em frequências de interesse
-            psd_baseline_trecho = psd_baseline_trecho[0:tamanho_trecho]
-            #valor da psd da linha atual daquele canal
-            psd_atual_trecho = row['psd_trecho'][ch][1][0:tamanho_trecho]
-            
-            psd_normalizado = psd_atual_trecho/psd_baseline_trecho
             df_a_normalizar.at[idx,f'psd_{ch}_norm'] = psd_normalizado
         
     return df_a_normalizar
@@ -1839,6 +1944,374 @@ df_B_final = normalizar_trecho(df_a_normalizar=df_B_final,
 df_C_final = normalizar_trecho(df_a_normalizar=df_C_final,
                             df_baseline=df_baseline,
                             relacoes= relacao_C)
+
+#%% Exportando as colunas da potencia total e em bandas
+
+def limpar_e_salvar_topomap_de_colunas_filtradas(
+    df_filtrado: pd.DataFrame,
+    nome_base_arquivo: str,
+    group_series: pd.Series | None = None,
+    protocolo: str | None = None,
+    prefix: str = "psd_norm_",
+    pasta_saida: str = ".",
+    eps: float = 1e-12,
+    salvar_csv: bool = True,
+    index: bool = False
+):
+    """
+    Recebe diretamente um dataframe já filtrado contendo apenas colunas PSD,
+    por exemplo:
+        df_A_final[[c for c in df_A_final.columns if c.startswith('psd_norm') and c != 'psd_trecho']]
+
+    A função:
+    1) Detecta canais com qualquer NaN em qualquer coluna/trial
+    2) Remove TODAS as colunas desses canais
+    3) Salva um CSV limpo (formato largo)
+    4) Monta e salva um CSV longo para dashboard:
+           grupo | banda | canal | psd_mean | psd_db_mean
+       e, se `protocolo` for informado:
+           protocolo | grupo | banda | canal | psd_mean | psd_db_mean
+    5) Salva um CSV relatório com canais e colunas removidos
+
+    Parameters
+    ----------
+    df_filtrado : pd.DataFrame
+        DataFrame contendo apenas colunas do tipo psd_norm_{banda}_{canal}.
+    nome_base_arquivo : str
+        Nome base dos arquivos. Ex.: "A", "protA", "df_A".
+    group_series : pd.Series | None
+        Série com os grupos correspondentes às linhas de df_filtrado.
+        Ex.: df_A_final['grupo']
+        Se None, cria grupo único = "all".
+    protocolo : str | None
+        Nome do protocolo para incluir no CSV longo.
+    prefix : str
+        Prefixo esperado nas colunas.
+    pasta_saida : str
+        Pasta de saída.
+    eps : float
+        Proteção para log10.
+    salvar_csv : bool
+        Se True, salva os CSVs.
+    index : bool
+        Se True, salva índice nos CSVs.
+
+    Returns
+    -------
+    dict
+        {
+            'df_limpo_largo': ...,
+            'df_topomap_longo': ...,
+            'df_relatorio': ...,
+            'canais_removidos': ...,
+            'colunas_removidas': ...,
+            'n_colunas_removidas': ...
+        }
+    """
+    df_filtrado = df_filtrado.copy()
+
+    # Garantir grupos
+    if group_series is None:
+        grupos = pd.Series(["all"] * len(df_filtrado), index=df_filtrado.index, name="grupo")
+    else:
+        grupos = pd.Series(group_series, index=df_filtrado.index, name="grupo")
+
+    # 1) mapear canal -> colunas
+    mapa_canal_cols = {}
+    for col in df_filtrado.columns:
+        canal = col.rsplit("_", 1)[-1]
+        mapa_canal_cols.setdefault(canal, []).append(col)
+
+    # 2) detectar canais ruins
+    canais_removidos = []
+    colunas_removidas = []
+
+    for canal, cols_do_canal in mapa_canal_cols.items():
+        if df_filtrado[cols_do_canal].isna().any().any():
+            canais_removidos.append(canal)
+            colunas_removidas.extend(cols_do_canal)
+
+    canais_removidos = sorted(canais_removidos)
+    colunas_removidas = sorted(colunas_removidas)
+    n_colunas_removidas = len(colunas_removidas)
+
+    # 3) remover colunas ruins
+    df_limpo_largo = df_filtrado.drop(columns=colunas_removidas, errors="ignore").copy()
+
+    # 4) relatório
+    relatorio = []
+    for canal in canais_removidos:
+        cols_canal = [c for c in colunas_removidas if c.endswith(f"_{canal}")]
+        relatorio.append({
+            "canal_removido": canal,
+            "n_colunas_removidas_do_canal": len(cols_canal),
+            "colunas_removidas": "; ".join(cols_canal)
+        })
+    df_relatorio = pd.DataFrame(relatorio)
+
+    # 5) montar dataframe longo
+    pattern = re.compile(rf"^{re.escape(prefix)}(.+?)_(.+)$")
+    df_aux = pd.concat([grupos, df_limpo_largo], axis=1)
+
+    registros = []
+    for col in df_limpo_largo.columns:
+        m = pattern.match(col)
+        if not m:
+            continue
+
+        banda = m.group(1)
+        canal = m.group(2)
+
+        for grupo, subdf in df_aux.groupby("grupo", dropna=False):
+            vals = pd.to_numeric(subdf[col], errors="coerce").dropna()
+
+            if len(vals) == 0:
+                psd_mean = np.nan
+                psd_db_mean = np.nan
+            else:
+                psd_mean = float(vals.mean())
+                psd_std = float(vals.std())
+                psd_db_mean = float((10 * np.log10(vals.clip(lower=eps))).mean())
+                psd_db_std = float((10 * np.log10(vals.clip(lower=eps))).std())
+
+            registro = {
+                "grupo": grupo,
+                "banda": banda,
+                "canal": canal,
+                "psd_mean": psd_mean,
+                "psd_std": psd_std,
+                "psd_db_mean": psd_db_mean,
+                "psd_db_std": psd_db_std
+            }
+
+            if protocolo is not None:
+                registro["protocolo"] = protocolo
+
+            registros.append(registro)
+
+    df_topomap_longo = pd.DataFrame(registros)
+
+    # ordenar colunas
+    if not df_topomap_longo.empty:
+        ordem_bandas = {
+            "total": 0,
+            "delta": 1,
+            "theta": 2,
+            "alfa": 3,
+            "alpha": 3,
+            "beta": 4,
+            "gamma": 5
+        }
+        df_topomap_longo["_ordem_banda"] = df_topomap_longo["banda"].map(
+            lambda x: ordem_bandas.get(str(x).lower(), 999)
+        )
+
+        cols_ordem = ["grupo", "banda", "canal", "psd_mean", "psd_std", "psd_db_mean","psd_db_std"]
+        if protocolo is not None:
+            cols_ordem = ["protocolo"] + cols_ordem
+
+        df_topomap_longo = (
+            df_topomap_longo
+            .sort_values(([ "protocolo"] if protocolo is not None else []) + ["grupo", "_ordem_banda", "canal"])
+            .drop(columns="_ordem_banda")
+            .reset_index(drop=True)
+        )[cols_ordem]
+
+    # 6) salvar
+    if salvar_csv:
+        Path(pasta_saida).mkdir(parents=True, exist_ok=True)
+
+        #caminho_largo = Path(pasta_saida) / f"{nome_base_arquivo}_limpo_largo.csv"
+        caminho_longo = Path(pasta_saida) / f"{nome_base_arquivo}.csv"
+        #caminho_rel = Path(pasta_saida) / f"{nome_base_arquivo}_relatorio_remocao.csv"
+
+        #df_limpo_largo.to_csv(caminho_largo, index=index)
+        df_topomap_longo.to_csv(caminho_longo, index=index)
+        #df_relatorio.to_csv(caminho_rel, index=index)
+
+    return {
+        #"df_limpo_largo": df_limpo_largo,
+        "df_topomap_longo": df_topomap_longo,
+        #"df_relatorio": df_relatorio,
+        "canais_removidos": canais_removidos,
+        "colunas_removidas": colunas_removidas,
+        "n_colunas_removidas": n_colunas_removidas
+    }
+
+if fase ==1: tipo ='estimulacao'
+else: tipo ='execucao'
+
+# Protocolo A
+col_number_norm = [c for c in df_A_final.columns if c.startswith('psd_norm') and not c.endswith('_norm') and not c.startswith('psd_trecho')]
+col_number = [c for c in df_A_final.columns if c.startswith('psd_') and not c.startswith('psd_norm') and not c.endswith('_norm') and not c.startswith('psd_trecho')]
+
+res_A = limpar_e_salvar_topomap_de_colunas_filtradas(
+    df_filtrado=df_A_final[col_number_norm],
+    nome_base_arquivo=f"topoplot_protA_{tipo}_norm",
+    group_series=df_A_final["grupo"],
+    protocolo=None,
+    pasta_saida="saida_dashboard"
+)
+
+print('Protocolo A normalizado')
+print(res_A["canais_removidos"])
+print(res_A["n_colunas_removidas"])
+print('---'*100)
+
+# Protocolo B
+col_number_norm = [c for c in df_B_final.columns if c.startswith('psd_norm') and not c.endswith('_norm') and not c.startswith('psd_trecho')]
+col_number = [c for c in df_B_final.columns if c.startswith('psd_') and not c.startswith('psd_norm') and not c.endswith('_norm') and not c.startswith('psd_trecho')]
+
+res_B = limpar_e_salvar_topomap_de_colunas_filtradas(
+    df_filtrado=df_B_final[col_number_norm],
+    nome_base_arquivo=f"topoplot_protB_{tipo}_norm",
+    group_series=df_B_final["grupo"],
+    protocolo=None,
+    pasta_saida="saida_dashboard"
+)
+
+print('Protocolo B normalizado')
+print(res_B["canais_removidos"])
+print(res_B["n_colunas_removidas"])
+print('---'*100)
+
+# Protocolo C
+col_number_norm = [c for c in df_C_final.columns if c.startswith('psd_norm') and not c.endswith('_norm') and not c.startswith('psd_trecho')]
+col_number = [c for c in df_C_final.columns if c.startswith('psd_') and not c.startswith('psd_norm') and not c.endswith('_norm') and not c.startswith('psd_trecho')]
+
+res_C = limpar_e_salvar_topomap_de_colunas_filtradas(
+    df_filtrado=df_C_final[col_number_norm],
+    nome_base_arquivo=f"topoplot_protC_{tipo}_norm",
+    group_series=None,
+    protocolo=None,
+    pasta_saida="saida_dashboard"
+)
+
+print('Protocolo C normalizado')
+print(res_C["canais_removidos"])
+print(res_C["n_colunas_removidas"])
+print('---'*100)
+
+# Protocolo C sem normalizar
+res_C = limpar_e_salvar_topomap_de_colunas_filtradas(
+    df_filtrado=df_C_final[col_number],
+    nome_base_arquivo=f"topoplot_protC_{tipo}",
+    group_series=None,
+    protocolo=None,
+    prefix='psd_',
+    pasta_saida="saida_dashboard"
+)
+
+print('Protocolo C sem normalizar')
+print(res_C["canais_removidos"])
+print(res_C["n_colunas_removidas"])
+print('---'*100)
+
+# Para os topoplots, vamos comparar o protocolo C com a baseline, uma vez que ele não tem divisão de grupos
+baseline_C = df_baseline[(df_baseline['grupo']== 'Baseline OA') & 
+                         (df_baseline['ID'].isin(df_C_final['ID'].unique()))]
+
+col_number = [c for c in baseline_C.columns if c.startswith('psd_') 
+              and not c.startswith('psd_norm') 
+              and not c.endswith('_norm') 
+              and not c.startswith('psd_trecho')
+              and all(canal not in c for canal in res_C["canais_removidos"])]
+res_baseline = limpar_e_salvar_topomap_de_colunas_filtradas(
+    df_filtrado=baseline_C[col_number],
+    nome_base_arquivo="topoplot_baseline_olhosAbertos_protC",
+    group_series=None,
+    protocolo=None,
+    prefix='psd_',
+    pasta_saida="saida_dashboard"
+)
+print('Baseline Protocolo C para comparação')
+print(res_baseline["canais_removidos"])
+print(res_baseline["n_colunas_removidas"])
+print('---'*100)
+# %% Exportar os dados do trecho da psd normalizado em colunas
+def exportar_psd_normalizado_csv(df,
+                                 colunas_psd,
+                                 incluir_meta=True,
+                                 caminho_csv='psd_normalizado_expandido.csv'):
+    """
+    Expande colunas contendo vetores/arrays de PSD em colunas numéricas
+    e salva em CSV. Trata células None preenchendo com NaN.
+    """
+
+    df = df.copy()
+    partes = []
+
+    if incluir_meta:
+        cols_meta = [c for c in df.columns if c not in colunas_psd]
+        partes.append(df[cols_meta].reset_index(drop=True))
+
+    for col in colunas_psd:
+        serie = df[col]
+
+        # acha o primeiro array válido para definir o tamanho esperado
+        primeiro_valido = next(
+            (x for x in serie if isinstance(x, (list, np.ndarray))),
+            None
+        )
+
+        if primeiro_valido is None:
+            print(f'Coluna {col} sem nenhum array válido. Pulando.')
+            continue
+
+        tamanho = len(primeiro_valido)
+
+        # substitui None por vetor de NaN
+        dados_corrigidos = [
+            np.asarray(x) if isinstance(x, (list, np.ndarray))
+            else np.full(tamanho, np.nan)
+            for x in serie
+        ]
+
+        expandido = pd.DataFrame(dados_corrigidos, index=df.index)
+
+        nome_base = col.replace('psd_', '').replace('_norm', '')
+        expandido.columns = [f'{nome_base}_{i}' for i in range(expandido.shape[1])]
+
+        partes.append(expandido.reset_index(drop=True))
+
+    df_final = pd.concat(partes, axis=1)
+    df_final.to_csv(caminho_csv, index=False)
+    return df_final
+
+if fase == 1:
+    fase_protocolo = 'estimulacao' 
+else: 
+    fase_protocolo = 'execucao'
+    
+colunas_todos_canais = [c for c in df_A_final.columns if c.endswith('_norm')] 
+df_csv = exportar_psd_normalizado_csv(
+    df_A_final,
+    colunas_psd=colunas_todos_canais,
+    incluir_meta=False,
+    caminho_csv=f'protA_X_psd_norm_completo_{fase_protocolo}.csv'   
+)
+
+colunas_todos_canais = [c for c in df_B_final.columns if c.endswith('_norm')] 
+df_csv = exportar_psd_normalizado_csv(
+    df_B_final,
+    colunas_psd=colunas_todos_canais,
+    incluir_meta=False,
+    caminho_csv=f'protB_X_psd_norm_completo_{fase_protocolo}.csv'   
+)
+
+colunas_todos_canais = [c for c in df_C_final.columns if c.endswith('_norm')] 
+df_csv = exportar_psd_normalizado_csv(
+    df_C_final,
+    colunas_psd=colunas_todos_canais,
+    incluir_meta=False,
+    caminho_csv=f'protC_X_psd_norm_completo_{fase_protocolo}.csv'   
+)
+
+#%% Salvando o Y e os filtros de cada protocolo
+if fase == 2:
+    df_A_final[['ID','Complexidade','grupo','Overlap','Desempenho', 'Acuracia','Similaridade', 'Especificidade', 'Proporção espacial x', 'Proporção espacial y' ]].to_csv('analise_df_A_final.csv')
+    df_B_final[['ID','Complexidade','grupo','Desempenho', 'Acuracia','Similaridade', 'Especificidade', 'Proporção espacial x', 'Proporção espacial y' ]].to_csv('analise_df_B_final.csv')
+    df_C_final[['ID','Complexidade','Desempenho', 'Acuracia','Similaridade', 'Especificidade', 'Proporção espacial x', 'Proporção espacial y' ]].to_csv('analise_df_C_final.csv')
 
 
 #%% PLS Regression
