@@ -145,7 +145,10 @@ def build_X(df, x_mode, fase='estimulacao', selected_channels=None):
                 full_df_clean = full_df.loc[df.index].copy()
                 return full_df_clean
             else:
-                raise ValueError(f"Lengths do not match. Full CSV: {len(full_df)}, DF: {len(df)}")
+                # Data is incomplete (e.g. Protocol C Stimulation has 108/144 trials).
+                # Assume the PSD rows correspond to the first N trials in the metadata.
+                full_df.index = df.index[:len(full_df)]
+                return full_df
                 
         except FileNotFoundError:
             raise FileNotFoundError(f"Missing {full_filepath}. Please ensure the file is present in the data folder.")

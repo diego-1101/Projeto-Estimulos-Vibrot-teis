@@ -16,15 +16,23 @@ from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
 from anova_engine import compute_anova_and_plot
 from psd_visualizer import create_psd_subplots
-from topoplot_engine import generate_topoplot_grid_base64, generate_topoplot_comparison_base64, get_channel_reference_base64
+from topoplot_engine import generate_topoplot_grid_base64, generate_topoplot_comparison_base64, get_channel_reference_base64, get_topoplot_bounds
 import os
 
 # Load Quick Guide Content
+base_path = os.path.dirname(__file__)
+
 try:
-    with open('QUICK_GUIDE.md', 'r', encoding='utf-8') as f:
+    with open(os.path.join(base_path, 'QUICK_GUIDE.md'), 'r', encoding='utf-8') as f:
         quick_guide_content = f.read()
 except FileNotFoundError:
-    quick_guide_content = "Quick Guide not found. Please ensure QUICK_GUIDE.md is in the project root."
+    quick_guide_content = "Quick Guide not found. Please ensure QUICK_GUIDE.md is in the eeg-psd-dashboard folder."
+
+try:
+    with open(os.path.join(base_path, 'TOPO_GUIDE.md'), 'r', encoding='utf-8') as f:
+        topo_guide_content = f.read()
+except FileNotFoundError:
+    topo_guide_content = "Topoplot Guide not found. Please ensure TOPO_GUIDE.md is in the eeg-psd-dashboard folder."
 
 # --- Globals & Setup ---
 app = dash.Dash(
@@ -276,6 +284,11 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
 
         # Build feature matrices
         X = build_X(df, x_mode, fase=fase, selected_channels=selected_channels)
+        
+        # Ensure metadata is aligned with the loaded features (X might have fewer rows)
+        df = df.loc[X.index].copy()
+        meta = meta.loc[X.index].copy()
+        
         Y = build_Y(df, y_cols)
         
         # Build supervision labels
@@ -544,7 +557,7 @@ def get_analysis_layout():
         html.Div(id='single-view', children=[
             html.Div([
                 html.Div([
-                    html.Button("ℹ️ Quick Guide", id='open-guide-btn', className='btn btn-sm btn-outline-info')
+                    html.Button("ℹ️ Quick Guide", id={'type': 'guide-btn', 'index': 'analysis-single'}, className='btn btn-sm btn-outline-info')
                 ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
                 dcc.Graph(id='plot-1', style={'height': '600px'})
             ], className="card mb-3", style={'position': 'relative'}),
@@ -565,7 +578,7 @@ def get_analysis_layout():
                 html.Div([
                     html.Div([
                         html.Div([
-                            html.Button("📖 Quick Guide", id='open-guide-btn-left', className='btn btn-sm btn-outline-info')
+                            html.Button("📖 Quick Guide", id={'type': 'guide-btn', 'index': 'analysis-left'}, className='btn btn-sm btn-outline-info')
                         ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
                         dcc.Graph(id='plot-left', style={'height': '500px'})
                     ], className="card mb-3", style={'position': 'relative'}),
@@ -583,7 +596,7 @@ def get_analysis_layout():
                 html.Div([
                     html.Div([
                         html.Div([
-                            html.Button("📖 Quick Guide", id='open-guide-btn-right', className='btn btn-sm btn-outline-info')
+                            html.Button("📖 Quick Guide", id={'type': 'guide-btn', 'index': 'analysis-right'}, className='btn btn-sm btn-outline-info')
                         ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
                         dcc.Graph(id='plot-right', style={'height': '500px'})
                     ], className="card mb-3", style={'position': 'relative'}),
@@ -805,6 +818,19 @@ def get_topoplot_layout():
                 ], open=True, className="mb-3")
             ]),
 
+            html.Label("Escala do Mapa", className="control-label"),
+            dcc.Dropdown(
+                id='topo-scale-mode-dropdown',
+                options=[
+                    {'label': 'Global (Todos os Protocolos)', 'value': 'global'},
+                    {'label': 'Por Protocolo', 'value': 'protocol'},
+                    {'label': 'Por Protocolo e Fase', 'value': 'context'},
+                    {'label': 'Independente (Por Banda)', 'value': 'independent'}
+                ],
+                value='global',
+                className="mb-3 dash-dropdown"
+            ),
+
             html.Button("Run Topoplot", id='run-topo-btn', className="btn btn-primary w-100"),
             html.Hr(),
             
@@ -823,11 +849,12 @@ def get_topoplot_layout():
         ], className="sidebar"),
         
         html.Div([
-            dcc.Loading(
-                id="loading-topo",
-                type="default",
-                children=html.Div(id="topo-output-container", className="d-flex flex-column gap-3 w-100")
-            )
+            html.Div([
+                html.Div([
+                    html.Button("ℹ️ Quick Guide", id={'type': 'guide-btn', 'index': 'topo'}, className='btn btn-sm btn-outline-info')
+                ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
+                html.Div(id="topo-output-container", className="d-flex flex-column gap-3 w-100", style={'paddingTop': '40px'})
+            ], className="card p-3 mb-3", style={'position': 'relative'})
         ], className="main-content")
     ])
 
@@ -889,32 +916,67 @@ def render_content(tab):
         return get_topoplot_layout()
 
 @app.callback(
-    Output('quick-guide-modal', 'style'),
-    [Input('open-guide-btn', 'n_clicks'),
-     Input('open-guide-btn-left', 'n_clicks'),
-     Input('open-guide-btn-right', 'n_clicks'),
+    [Output('quick-guide-modal', 'style'),
+     Output('quick-guide-modal', 'children')],
+    [Input({'type': 'guide-btn', 'index': ALL}, 'n_clicks'),
      Input('close-guide-btn', 'n_clicks')],
     State('quick-guide-modal', 'style'),
     prevent_initial_call=True
 )
-def toggle_quick_guide(btn1, btn2, btn3, close_clicks, current_style):
+def toggle_quick_guide(btn_clicks, close_clicks, current_style):
     from dash import ctx
     if not ctx.triggered:
-        return {'display': 'none'}
+        return {'display': 'none'}, dash.no_update
         
-    # Check if the trigger is an initialization (n_clicks is None)
-    # This prevents the modal from opening when the buttons are dynamically added to the layout via tabs
-    trigger_val = ctx.triggered[0]['value']
-    if trigger_val is None:
-        return current_style
+    # Validation: Ensure it was a real click, not just a layout update
+    trigger = ctx.triggered[0]
+    if trigger['value'] is None or trigger['value'] == 0:
+        return {'display': 'none'}, dash.no_update
+        
+    trigger_id_json = trigger['prop_id'].split('.')[0]
     
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger_id_json == 'close-guide-btn':
+        return {'display': 'none'}, dash.no_update
     
-    if trigger_id in ['open-guide-btn', 'open-guide-btn-left', 'open-guide-btn-right']:
-        return {'display': 'block'}
-    elif trigger_id == 'close-guide-btn':
-        return {'display': 'none'}
-    return current_style
+    # Check if any guide button was actually clicked (not just added to layout)
+    # trigger_id_json will be like '{"index":"topo","type":"guide-btn"}'
+    import json
+    try:
+        tid = json.loads(trigger_id_json)
+        mode = tid.get('index', '')
+    except:
+        return {'display': 'none'}, dash.no_update
+
+    # Select content based on trigger
+    if mode == 'topo':
+        content = topo_guide_content
+        title = "📖 Guia Rápido: Topoplots"
+    else:
+        content = quick_guide_content
+        title = "📖 Guia Rápido e Metodológico"
+
+    # Reconstruct the modal content with the correct markdown
+    modal_children = [
+        html.Div(className='modal-backdrop', style={
+            'position': 'fixed', 'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh',
+            'backgroundColor': 'rgba(0, 0, 0, 0.7)', 'zIndex': 1040
+        }),
+        html.Div(className='modal-content-wrapper', style={
+            'position': 'fixed', 'top': '5vh', 'left': '10vw', 'width': '80vw', 'height': '90vh',
+            'zIndex': 1050, 'backgroundColor': 'inherit', 'borderRadius': '10px', 'boxShadow': '0 4px 20px rgba(0,0,0,0.5)',
+            'display': 'flex', 'flexDirection': 'column', 'overflow': 'hidden'
+        }, children=[
+            html.Div(className='modal-header card-header d-flex justify-content-between align-items-center', style={'padding': '15px'}, children=[
+                html.H4(title, className='m-0'),
+                html.Button("✖ Fechar", id='close-guide-btn', className='btn btn-danger btn-sm')
+            ]),
+            html.Div(className='modal-body card-body', style={'overflowY': 'auto', 'padding': '30px'}, children=[
+                dcc.Markdown(content, mathjax=True)
+            ])
+        ])
+    ]
+    
+    return {'display': 'block'}, modal_children
 
 @app.callback(
     Output('math-model-container', 'children'),
@@ -1374,6 +1436,43 @@ def update_topo_protocol_options(prot):
     return style_group, group_opts, group_val, style_norm, style_fase, fase_opts, fase_val
 
 @app.callback(
+    [Output('topo-scale-mode-dropdown', 'options'),
+     Output('topo-scale-mode-dropdown', 'value')],
+    [Input({'type': 'topo-prot-dropdown', 'index': ALL}, 'value'),
+     Input('topo-comparison-toggle', 'value')],
+    State('topo-scale-mode-dropdown', 'value')
+)
+def update_topo_scale_options(prots, comp_toggle, current_val):
+    """
+    Hides 'Por Protocolo e Fase' only for Baseline.
+    Adds 'Por Protocolo, Fase e Grupo' for Protocol A/B.
+    """
+    active_prots = prots[:2] if 'yes' in (comp_toggle or []) else prots[:1]
+    
+    # Check conditions
+    has_baseline = any(p == 'baseline_C' for p in active_prots)
+    has_ab = any(p in ['A', 'B'] for p in active_prots)
+    
+    base_options = [
+        {'label': 'Global (Todos os Protocolos)', 'value': 'global'},
+        {'label': 'Por Protocolo', 'value': 'protocol'},
+        {'label': 'Por Protocolo e Fase', 'value': 'context'},
+        {'label': 'Independente (Por Banda)', 'value': 'independent'}
+    ]
+    
+    # 1. Add Group Context if A or B is present
+    if has_ab:
+        base_options.insert(3, {'label': 'Por Protocolo, Fase e Grupo', 'value': 'group_context'})
+    
+    # 2. Filter out Context if Baseline is present
+    if has_baseline:
+        base_options = [opt for opt in base_options if opt['value'] not in ['context', 'group_context']]
+        if current_val in ['context', 'group_context']:
+            current_val = 'global'
+            
+    return base_options, current_val
+
+@app.callback(
     Output('topo-controls-2-wrapper', 'style'),
     Input('topo-comparison-toggle', 'value')
 )
@@ -1389,10 +1488,11 @@ def toggle_topo_comparison(enabled):
      State({'type': 'topo-group-dropdown', 'index': ALL}, 'value'),
      State({'type': 'topo-scale-radio', 'index': ALL}, 'value'),
      State({'type': 'topo-norm-check', 'index': ALL}, 'value'),
-     State('topo-comparison-toggle', 'value')],
+     State('topo-comparison-toggle', 'value'),
+     State('topo-scale-mode-dropdown', 'value')],
     prevent_initial_call=True
 )
-def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
+def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle, scale_mode):
     if not n_clicks:
         from dash.exceptions import PreventUpdate
         raise PreventUpdate
@@ -1403,6 +1503,52 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
     do_comp = 'yes' in (comp_toggle or [])
     panels = 2 if do_comp else 1
     
+    # --- Pre-calculate Bounds for all panels ---
+    panel_limits = []
+    for i in range(panels):
+        prot = prots[i]
+        fase = fases[i]
+        scale_db = scales[i] == 'db'
+        is_norm = 'yes' in (norms[i] or [])
+        is_baseline = (prot == 'baseline_C')
+        real_prot = 'C' if is_baseline else prot
+        target_col = 'psd_db_mean' if scale_db else 'psd_mean'
+        
+        vmin, vmax = None, None
+        if scale_mode == 'global':
+            vmin, vmax = get_topoplot_bounds('global', target_col=target_col)
+        elif scale_mode == 'protocol':
+            vmin, vmax = get_topoplot_bounds('protocol', protocol=real_prot, target_col=target_col)
+        elif scale_mode == 'context' or scale_mode == 'group_context':
+            # Calculate from the specific file being loaded
+            from topoplot_engine import get_topoplot_path
+            fpath = get_topoplot_path(real_prot, fase, is_norm, is_baseline)
+            if fpath and os.path.exists(fpath):
+                try:
+                    df_temp = pd.read_csv(fpath)
+                    
+                    # Filtering by group if mode is group_context
+                    if scale_mode == 'group_context' and 'grupo' in df_temp.columns:
+                         df_temp = df_temp[df_temp['grupo'] == group]
+                         
+                    if not df_temp.empty:
+                        vmin, vmax = df_temp[target_col].min(), df_temp[target_col].max()
+                        vrange = vmax - vmin if vmax > vmin else 1.0
+                        vmin -= 0.05 * vrange
+                        vmax += 0.05 * vrange
+                except: pass
+        panel_limits.append((vmin, vmax))
+
+    # --- Sync limits if comparing and scale mode requires it ---
+    if do_comp and scale_mode != 'independent':
+        # Find the universal vmin/vmax across both panels
+        l1, l2 = panel_limits[0], panel_limits[1]
+        all_v = [v for l in [l1, l2] for v in l if v is not None]
+        if len(all_v) >= 2:
+            common_vmin, common_vmax = min(all_v), max(all_v)
+            panel_limits = [(common_vmin, common_vmax)] * 2
+
+    # --- Now Render ---
     for i in range(panels):
         prot = prots[i]
         fase = fases[i]
@@ -1410,8 +1556,8 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
         scale_db = scales[i] == 'db'
         is_norm = 'yes' in (norms[i] or [])
         is_baseline = (prot == 'baseline_C')
-        
         real_prot = 'C' if is_baseline else prot
+        vmin, vmax = panel_limits[i]
         
         # --- Segurança Extra: Forçar grupo correto para o protocolo ---
         if prot == 'A' and group not in ['CV', 'SV']:
@@ -1419,11 +1565,12 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
         elif prot == 'B' and group not in ['CF', 'SF']:
             group = 'CF'
             
-        print(f"[DEBUG TOPO] Panel {i+1} | Prot: {prot} | Fase: {fase} | Group: {group} | Baseline: {is_baseline}")
+        print(f"[DEBUG TOPO] Panel {i+1} | Prot: {prot} | Fase: {fase} | Group: {group} | Scale: {scale_mode}")
         
         img_b64, err = generate_topoplot_grid_base64(
             protocol=real_prot, fase=fase, group=group, 
-            scale_db=scale_db, is_normalized=is_norm, is_baseline=is_baseline
+            scale_db=scale_db, is_normalized=is_norm, is_baseline=is_baseline,
+            vmin=vmin, vmax=vmax
         )
         
         title_norm = " Normalizado" if is_norm else ""
@@ -1470,7 +1617,10 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle):
         
         # We share the scale of the first panel for the comparison t-test selection logic
         # (Though differentiate is always diff of means)
-        img_comp, stats_data, msg_comp = generate_topoplot_comparison_base64(p1, p2, scales[0] == 'db')
+        img_comp, stats_data, msg_comp = generate_topoplot_comparison_base64(
+            p1, p2, scales[0] == 'db', 
+            standardize_bands=(scale_mode != 'independent')
+        )
         
         if img_comp:
             # Build the details list
