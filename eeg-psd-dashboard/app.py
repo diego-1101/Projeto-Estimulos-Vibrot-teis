@@ -56,6 +56,7 @@ Y_VARIABLES = [
 ]
 
 ALL_CHANNELS = ['FP1', 'FP2', 'FZ', 'F3', 'F4', 'F7', 'F8', 'CZ', 'C3', 'C4', 'T7', 'T8', 'P7', 'P8', 'PZ', 'P3', 'P4', 'O1', 'O2', 'FCZ', 'FC1', 'FC2', 'FC3', 'OZ', 'C2', 'CP1', 'CP3', 'CP4', 'C1', 'FC4', 'CPZ', 'CP2']
+CHANNELS_C = [ch for ch in ALL_CHANNELS if ch not in ['CP2', 'CP4']]
 
 # --- Helper Functions ---
 
@@ -186,7 +187,7 @@ def create_analysis_controls(panel_id):
         html.Label("Canais (Features do X)", className="control-label"),
         dcc.Dropdown(
             id={'type': 'channels-dropdown', 'index': panel_id},
-            options=[{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
+            options=[{'label': 'Select All', 'value': 'ALL'}] + [{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
             value=['CZ', 'C3', 'C4'],
             multi=True,
             className="mb-3 dash-dropdown"
@@ -640,7 +641,7 @@ def get_psd_layout():
             html.Label("Channels", className="control-label"),
             dcc.Dropdown(
                 id='psd-channels-checklist',
-                options=[{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
+                options=[{'label': 'Select All', 'value': 'ALL'}] + [{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
                 value=['CZ', 'C3', 'C4'],
                 multi=True,
                 className="mb-3 dash-dropdown"
@@ -1364,6 +1365,67 @@ def run_psd_visualization(n_clicks, protocol, fase, channels, scale, bands_toggl
         fig.update_layout(title=f"Rendering Error: {str(e)}")
         return fig, html.Div(f"Plotting Exception: {str(e)}", className="text-danger")
 
+
+# --- Channel Selection Callbacks ---
+
+# Combined callback to handle both protocol-based filtering and "Select All" logic
+@app.callback(
+    [Output({'type': 'channels-dropdown', 'index': ALL}, 'options'),
+     Output({'type': 'channels-dropdown', 'index': ALL}, 'value')],
+    [Input('protocol-dropdown', 'value'),
+     Input({'type': 'channels-dropdown', 'index': ALL}, 'value')],
+    [State({'type': 'channels-dropdown', 'index': ALL}, 'id')],
+    prevent_initial_call=False
+)
+def update_channels_multivariate(prot, current_values, ids):
+    if not ids:
+        return dash.no_update
+        
+    from dash import ctx
+    trigger = ctx.triggered_id if not isinstance(ctx.triggered_id, dict) else ctx.triggered_id.get('type')
+    
+    channels = CHANNELS_C if prot == 'C' else ALL_CHANNELS
+    options = [{'label': 'Select All', 'value': 'ALL'}] + [{'label': ch, 'value': ch} for ch in channels]
+    
+    ret_options = [options for _ in ids]
+    ret_values = []
+    
+    for i, val in enumerate(current_values):
+        if not val:
+            ret_values.append(['CZ', 'C3', 'C4'])
+            continue
+            
+        # Handle Select All trigger
+        if 'ALL' in val:
+            ret_values.append(channels)
+        else:
+            # Filter by protocol
+            ret_values.append([v for v in val if v in channels])
+            
+    return ret_options, ret_values
+
+@app.callback(
+    [Output('psd-channels-checklist', 'options'),
+     Output('psd-channels-checklist', 'value')],
+    [Input('psd-protocol-dropdown', 'value'),
+     Input('psd-channels-checklist', 'value')],
+    prevent_initial_call=False
+)
+def update_channels_psd(prot, current_value):
+    channels = CHANNELS_C if prot == 'C' else ALL_CHANNELS
+    options = [{'label': 'Select All', 'value': 'ALL'}] + [{'label': ch, 'value': ch} for ch in channels]
+    
+    if not current_value:
+        return options, ['CZ', 'C3', 'C4']
+        
+    if 'ALL' in current_value:
+        return options, channels
+    
+    new_value = [v for v in current_value if v in channels]
+    if not new_value:
+        new_value = ['CZ', 'C3', 'C4']
+        
+    return options, new_value
 
 # --- Fase Options Population Callbacks ---
 @app.callback(
