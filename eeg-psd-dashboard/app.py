@@ -762,6 +762,7 @@ def get_topoplot_layout():
                 ], className="p-2 border rounded")
             ], open=True, className="mb-3"),
 
+
             html.Label("Número de Plots", className="control-label"),
             dcc.RadioItems(
                 id='topo-plot-count-radio',
@@ -1647,6 +1648,14 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
     if not n_clicks:
         from dash.exceptions import PreventUpdate
         raise PreventUpdate
+
+    from topoplot_engine import (
+        generate_topoplot_grid_base64, 
+        generate_topoplot_comparison_base64,
+        generate_anova_map_base64,
+        get_topoplot_bounds,
+        get_topoplot_path
+    )
         
     
     outputs = []
@@ -1792,71 +1801,62 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
             
     # --- Statistical Comparison Row ---
     if panels >= 2:
-        # Define comparisons based on panels count
-        comps = []
-        if panels == 2:
-            comps = [(0, 1)]
-        elif panels == 3:
-            comps = [(0, 1), (0, 2), (1, 2)]
+        # Comparison logic
+        p_list = []
+        for i in range(panels):
+            p_list.append({
+                'protocol': 'C' if (prots[i] == 'baseline_C') else prots[i],
+                'fase': fases[i],
+                'group': groups[i],
+                'is_normalized': 'yes' in (norms[i] or []),
+                'is_baseline': (prots[i] == 'baseline_C')
+            })
+
+        # 1. Global ANOVA Map (only for 3 panels)
+        if panels == 3:
+            anova_img = generate_anova_map_base64(p_list, scales[0] == 'db')
+            if anova_img:
+                outputs.append(html.Div([
+                    html.H4("Análise Global (One-Way ANOVA)", className="text-center text-warning"),
+                    html.P("Mapa de probabilidade (1-p). Cores quentes indicam variação significativa entre os 3 painéis em pelo menos um ponto.", className="text-center text-muted small"),
+                    html.Img(src=f"data:image/png;base64,{anova_img}", style={'width':'100%', 'height':'auto'}),
+                ], className="card p-3 shadow-sm border-warning", style={'borderWidth': '2px', 'marginTop': '20px'}))
+                messages.append("ANOVA Global Rendered.")
+
+        # 2. Pairwise Comparisons
+        comps = [(0, 1)]
+        if panels == 3: comps = [(0, 1), (0, 2), (1, 2)]
             
         for idx1, idx2 in comps:
-            # Prepare inputs for engine
-            p1 = {
-                'protocol': 'C' if (prots[idx1] == 'baseline_C') else prots[idx1],
-                'fase': fases[idx1],
-                'group': groups[idx1],
-                'is_normalized': 'yes' in (norms[idx1] or []),
-                'is_baseline': (prots[idx1] == 'baseline_C')
-            }
-            p2 = {
-                'protocol': 'C' if (prots[idx2] == 'baseline_C') else prots[idx2],
-                'fase': fases[idx2],
-                'group': groups[idx2],
-                'is_normalized': 'yes' in (norms[idx2] or []),
-                'is_baseline': (prots[idx2] == 'baseline_C')
-            }
-            
-            label1 = f"Painel {idx1+1}"
-            label2 = f"Painel {idx2+1}"
-            
-            # We share the scale of the first panel for the comparison t-test selection logic
-            img_comp, stats_data, msg_comp = generate_topoplot_comparison_base64(
-                p1, p2, scales[0] == 'db', 
-                standardize_bands=(scale_mode != 'independent'),
+            label1, label2 = f"Painel {idx1+1}", f"Painel {idx2+1}"
+            img_comp, stats_data = generate_topoplot_comparison_base64(
+                p_list[idx1], p_list[idx2], scales[idx1] == 'db',
                 label1=label1, label2=label2
             )
             
             if img_comp:
-                # Build the details list
                 details_children = []
-                for band_info in stats_data:
-                    if band_info['channels']:
-                        details_children.append(html.B(f"{band_info['band']}: ", className="text-primary"))
-                        # Create a string like "C3 (p=0.001), Pz (p=0.045)"
-                        ch_list = ", ".join([f"{c['ch']} (p={c['p']:.3f})" for c in band_info['channels']])
+                for band, channels in stats_data.items():
+                    if channels:
+                        details_children.append(html.B(f"{band.capitalize()}: ", className="text-primary"))
+                        ch_list = ", ".join([f"{c['canal']} (p={c['p']:.3f})" for c in channels])
                         details_children.append(html.Span(ch_list))
                         details_children.append(html.Br())
                 
                 if not details_children:
-                    details_children = [html.I("Nenhum canal significativo encontrado (p < 0.05).")]
+                    details_children = [html.I(f"Nenhum canal significativo encontrado (p < 0.05).")]
 
                 outputs.append(html.Div([
-                    html.H4(f"Comparação Estatística: {label1} vs {label2}", className="text-center text-danger"),
-                    html.P(msg_comp, className="text-center text-muted small"),
+                    html.H4(f"Comparação: {label1} vs {label2}", className="text-center text-danger"),
                     html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
-                    
-                    # Statistical Details Toggle
                     html.Details([
                         html.Summary(f"📊 Detalhes Estatísticos ({label1} vs {label2})", 
                                      style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#dc3545', 'marginTop': '10px'}),
                         html.Div(details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
                     ], className="mt-2")
-                    
                 ], className="card p-3 shadow-sm border-danger", style={'borderWidth': '2px', 'marginTop': '20px'}))
                 messages.append(f"Comparison {label1} vs {label2} Rendered.")
-            else:
-                messages.append(f"Comparison {label1} vs {label2} Failed: {msg_comp}")
-            
+
     return outputs, " | ".join(messages)
 
 if __name__ == '__main__':
