@@ -14,30 +14,48 @@ Este módulo permite visualizar a distribuição espacial da potência espectral
 
 ## ⚖️ Escala do Mapa (Normalização da Barra de Cores)
 
-A escolha da escala é fundamental para uma comparação justa entre diferentes estados. Sem padronização, uma banda Delta "azul" em um gráfico pode ter mais potência que uma banda Alfa "vermelha" em outro.
+A escolha da escala é fundamental para uma comparação justa. O sistema adapta as opções disponíveis dependendo se você está visualizando um único plot ou comparando vários.
 
-| Modo de Escala | Como é calculado | Quando usar |
-| :--- | :--- | :--- |
-| **Global** | Busca o mínimo e máximo absoluto em **todos** os protocolos e arquivos. | Para comparar a intensidade absoluta entre experimentos diferentes. |
-| **Por Protocolo** | Considera todos os dados (estimulação, execução, grupos) **apenas do protocolo atual**. | Para comparar a ativação entre fases (Estimulação vs Execução) do mesmo estudo. |
-| **Por Prot. e Fase** | Considera apenas o arquivo sendo exibido (ex: Prot A - Estimulação), unificando as 6 bandas. | Para comparar a ativação relativa entre Delta, Alfa, Gamma, etc. em um único momento. |
-| **Por Prot., Fase e Grupo** | Filtra os dados apenas para o **grupo selecionado** (ex: apenas CV) naquele momento. | Para análise específica de um grupo sem interferência de outros. |
-| **Independente** | Cada banda (Total, Delta, etc.) calcula seu próprio limite local. | Apenas para ver a **morfologia** (formato) da ativação em bandas muito fracas. |
+### Quando visualizando 1 Plot:
+| Modo de Escala | Descrição |
+| :--- | :--- |
+| **Global** | Mínimo e máximo absoluto em **todos** os protocolos. |
+| **Por Protocolo** | Considera todos os dados **apenas do protocolo atual**. |
+| **Por Prot. e Fase** | Unifica as 6 bandas apenas para o momento atual (ex: Prot A - Execução). |
+| **Por Prot., Fase e Grupo** | Filtra os dados apenas para o **grupo selecionado** (ex: apenas CV). |
+| **Independente** | Cada banda calcula seu próprio limite local (foco na morfologia). |
 
-> [!TIP]
-> **Folga de Segurança (Buffer):** Em todos os modos padronizados, o sistema adiciona uma margem de **5%** nos limites. Isso evita que os valores fiquem saturados (totalmente vermelho/azul) nas bordas e permite ver melhor os gradientes.
+### Quando visualizando 2 ou 3 Plots (Comparação):
+Para garantir que as cores sejam comparáveis entre os painéis, oferecemos dois modos globais:
+*   **Escala por banda (Global por Banda):** Sincroniza a escala de cada frequência (ex: Delta) entre todos os painéis ativos. O "Delta" do Painel 1 terá a mesma escala que o "Delta" do Painel 2 e 3. Útil para comparar a evolução de uma banda específica em diferentes contextos.
+*   **Escala comum (Global Absoluto):** Cria uma única escala mestre para **todas as bandas** e **todos os painéis**. Isso permite ver, por exemplo, se a potência Alfa em um protocolo é genuinamente maior que a potência Beta em outro.
 
 ---
 
-## 🔍 Enable Comparison (Modo de Comparação)
+## 🤝 Opção "Ambos" e Médias Ponderadas
 
-Ao ativar o **Enable Comparison**, um segundo painel de controle é habilitado.
+Ao selecionar a opção **"Ambos"** para o Grupo ou Fase, o sistema não faz uma média simples, mas sim uma **média ponderada pelo número de trials ($n$)** de cada condição.
 
-1.  **Sincronização Automática:** Se você escolher qualquer modo de escala padronizado (Global, Protocolo, etc.), o sistema calculará um limite comum entre os dois painéis. Isso garante que o "vermelho" no Painel 1 signifique exatamente o mesmo que no Painel 2.
-2.  **Statistical Difference (Diferença Estatística):** Uma terceira linha de mapas será gerada automaticamente mostrando **(Painel 1 - Painel 2)**.
-    *   **Mapa de Calor:** Tons de vermelho indicam potência maior no Painel 1; tons de azul indicam potência maior no Painel 2.
-    *   **Marcadores (X):** Canais onde a diferença é estatisticamente significativa (**$p < 0.05$** via *Independent T-Test*) são destacados com um **X** preto.
-    *   **Escala Única:** A linha de diferença também segue a padronização das 6 bandas para que você veja onde a mudança estatística foi mais intensa.
+$$ \text{Potência Combinada} = \frac{(\text{Média}_A \cdot n_A) + (\text{Média}_B \cdot n_B)}{n_A + n_B} $$
+
+Isso garante que condições com mais dados (ex: uma fase de execução mais longa ou um grupo com mais participantes) tenham o peso correto no resultado final, evitando distorções estatísticas.
+
+### 💡 Dicas de Escala para o modo "Ambos":
+*   **Se usar "Ambos Grupo"**: Use a **Escala por Protocolo**. Isso permite comparar a ativação média do protocolo com estados de baseline ou outros protocolos de forma justa.
+*   **Se usar "Ambos Fase"**: Use a **Escala por Protocolo** ou **Global**. Como você está olhando para a "sessão total", escalas mais amplas ajudam a contextualizar essa potência média dentro do experimento completo.
+*   **Em Comparações (2-3 plots)**: Se um dos painéis for "Ambos" e o outro for um grupo específico, utilize obrigatoriamente a **Escala por Banda**. Isso evita que a magnitude naturalmente menor de uma média (Ambos) seja visualmente "engolida" por um grupo de alta ativação.
+
+---
+
+## 🔍 Comparação de Múltiplos Painéis
+
+O dashboard permite exibir até **3 painéis** simultâneos para análise comparativa profunda.
+
+1.  **Pairwise Comparison (Todos contra Todos):** Ao selecionar 2 ou 3 plots, o sistema gera automaticamente mapas de diferença estatística para todas as combinações possíveis (1 vs 2, 1 vs 3, 2 vs 3).
+2.  **Diferença Estatística:** 
+    *   **Mapa de Calor:** Tons de vermelho indicam potência maior no primeiro painel da dupla; tons de azul indicam potência maior no segundo.
+    *   **Marcadores (X):** Canais onde a diferença é estatisticamente significativa (**$p < 0.05$** via *Independent T-Test*) são destacados.
+    *   **Painel de Detalhes:** Abaixo de cada comparação, você pode expandir os "Detalhes Estatísticos" para ver os p-values exatos de cada canal significativo por banda.
 
 ---
 

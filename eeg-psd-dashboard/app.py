@@ -1535,19 +1535,35 @@ def update_topo_protocol_options(prot):
     
     # Fase options logic (A/B share same, C differs)
     if prot == 'C':
-        fase_opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+        fase_opts = [
+            {'label': 'Exploração', 'value': 'estimulacao'}, 
+            {'label': 'Execução', 'value': 'execucao'},
+            {'label': 'Ambos', 'value': 'Ambos'}
+        ]
     else:
-        fase_opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+        fase_opts = [
+            {'label': 'Estimulação', 'value': 'estimulacao'}, 
+            {'label': 'Execução', 'value': 'execucao'},
+            {'label': 'Ambos', 'value': 'Ambos'}
+        ]
     
     fase_val = 'estimulacao'
     
     if prot == 'A':
         style_group = {'display': 'block'}
-        group_opts = [{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}]
+        group_opts = [
+            {'label': 'CV', 'value': 'CV'}, 
+            {'label': 'SV', 'value': 'SV'},
+            {'label': 'Ambos', 'value': 'Ambos'}
+        ]
         group_val = 'CV'
     elif prot == 'B':
         style_group = {'display': 'block'}
-        group_opts = [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}]
+        group_opts = [
+            {'label': 'CF', 'value': 'CF'}, 
+            {'label': 'SF', 'value': 'SF'},
+            {'label': 'Ambos', 'value': 'Ambos'}
+        ]
         group_val = 'CF'
     elif prot == 'C':
         style_norm = {'display': 'block'}
@@ -1566,12 +1582,24 @@ def update_topo_protocol_options(prot):
 )
 def update_topo_scale_options(prots, plot_count, current_val):
     """
-    Hides 'Por Protocolo e Fase' only for Baseline.
-    Adds 'Por Protocolo, Fase e Grupo' for Protocol A/B.
+    If 1 plot: Original logic (Global, Protocol, Context, etc.)
+    If >1 plot: Simple logic (Global per Band, Global Absolute)
     """
-    active_prots = prots[:plot_count] if plot_count else prots[:1]
-    
-    # Check conditions
+    if not plot_count:
+        plot_count = 1
+
+    if plot_count > 1:
+        options = [
+            {'label': 'Escala por banda (Global por Banda)', 'value': 'global_per_band'},
+            {'label': 'Escala comum (Global Absoluto)', 'value': 'global_absolute'}
+        ]
+        # Ensure current_val is valid for the new options
+        if current_val not in ['global_per_band', 'global_absolute']:
+            current_val = 'global_per_band'
+        return options, current_val
+
+    # Original logic for 1 plot
+    active_prots = prots[:plot_count]
     has_baseline = any(p == 'baseline_C' for p in active_prots)
     has_ab = any(p in ['A', 'B'] for p in active_prots)
     
@@ -1582,11 +1610,9 @@ def update_topo_scale_options(prots, plot_count, current_val):
         {'label': 'Independente (Por Banda)', 'value': 'independent'}
     ]
     
-    # 1. Add Group Context if A or B is present
     if has_ab:
         base_options.insert(3, {'label': 'Por Protocolo, Fase e Grupo', 'value': 'group_context'})
     
-    # 2. Filter out Context if Baseline is present
     if has_baseline:
         base_options = [opt for opt in base_options if opt['value'] not in ['context', 'group_context']]
         if current_val in ['context', 'group_context']:
@@ -1622,18 +1648,75 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         from dash.exceptions import PreventUpdate
         raise PreventUpdate
         
+    
     outputs = []
     messages = []
     
     panels = plot_count if plot_count else 1
     
     # --- Pre-calculate Bounds for all panels ---
-    panel_limits = []
-    for i in range(panels):
-        prot = prots[i]
-        fase = fases[i]
-        scale_db = scales[i] == 'db'
-        is_norm = 'yes' in (norms[i] or [])
+    panel_limits = [] # Used for single-plot or global_absolute
+    band_limits = None  # Used for global_per_band
+    common_vmin, common_vmax = None, None
+
+    if panels > 1:
+        # Multi-plot logic: Calculate global limits across all active panels
+        all_dfs = []
+        target_cols = []
+        from topoplot_engine import get_topoplot_path, BANDS_ORDER
+        
+        for i in range(panels):
+            is_baseline = (prots[i] == 'baseline_C')
+            fases_to_load = ['estimulacao', 'execucao'] if fases[i] == 'Ambos' else [fases[i]]
+            
+            for f in fases_to_load:
+                fpath = get_topoplot_path('C' if is_baseline else prots[i], f, 'yes' in (norms[i] or []), is_baseline)
+                if fpath and os.path.exists(fpath):
+                    try:
+                        df_tmp = pd.read_csv(fpath)
+                        if 'banda' in df_tmp.columns:
+                             df_tmp['banda'] = df_tmp['banda'].str.lower().replace({'alpha': 'alfa'})
+                        # Filter group if needed (if group is 'Ambos', we keep all and combine later, 
+                        # but for bound calculation we can just take all rows of the file)
+                        if prots[i] in ['A', 'B'] and not is_baseline and groups[i] != 'Ambos':
+                            df_tmp = df_tmp[df_tmp['grupo'] == groups[i]]
+                        
+                        all_dfs.append(df_tmp)
+                        target_cols.append('psd_db_mean' if scales[i] == 'db' else 'psd_mean')
+                    except: pass
+        
+        if scale_mode == 'global_per_band':
+            band_limits = {}
+            for band in BANDS_ORDER:
+                b_mins, b_maxs = [], []
+                for df_tmp, tcol in zip(all_dfs, target_cols):
+                    df_b = df_tmp[df_tmp['banda'] == band]
+                    if not df_b.empty:
+                        b_mins.append(df_b[tcol].min())
+                        b_maxs.append(df_b[tcol].max())
+                if b_mins:
+                    bvmin, bvmax = min(b_mins), max(b_maxs)
+                    vrange = bvmax - bvmin if bvmax > bvmin else 1.0
+                    band_limits[band] = (bvmin - 0.05*vrange, bvmax + 0.05*vrange)
+        
+        elif scale_mode == 'global_absolute':
+            g_mins, g_maxs = [], []
+            for df_tmp, tcol in zip(all_dfs, target_cols):
+                if not df_tmp.empty:
+                    g_mins.append(df_tmp[tcol].min())
+                    g_maxs.append(df_tmp[tcol].max())
+            if g_mins:
+                common_vmin, common_vmax = min(g_mins), max(g_maxs)
+                vrange = common_vmax - common_vmin if common_vmax > common_vmin else 1.0
+                common_vmin -= 0.05 * vrange
+                common_vmax += 0.05 * vrange
+
+    else:
+        # Single-plot logic: Original contextual options
+        prot = prots[0]
+        fase = fases[0]
+        scale_db = scales[0] == 'db'
+        is_norm = 'yes' in (norms[0] or [])
         is_baseline = (prot == 'baseline_C')
         real_prot = 'C' if is_baseline else prot
         target_col = 'psd_db_mean' if scale_db else 'psd_mean'
@@ -1644,33 +1727,20 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         elif scale_mode == 'protocol':
             vmin, vmax = get_topoplot_bounds('protocol', protocol=real_prot, target_col=target_col)
         elif scale_mode == 'context' or scale_mode == 'group_context':
-            # Calculate from the specific file being loaded
             from topoplot_engine import get_topoplot_path
             fpath = get_topoplot_path(real_prot, fase, is_norm, is_baseline)
             if fpath and os.path.exists(fpath):
                 try:
                     df_temp = pd.read_csv(fpath)
-                    
-                    # Filtering by group if mode is group_context
                     if scale_mode == 'group_context' and 'grupo' in df_temp.columns:
-                         df_temp = df_temp[df_temp['grupo'] == group]
-                         
+                         df_temp = df_temp[df_temp['grupo'] == groups[0]]
                     if not df_temp.empty:
                         vmin, vmax = df_temp[target_col].min(), df_temp[target_col].max()
                         vrange = vmax - vmin if vmax > vmin else 1.0
                         vmin -= 0.05 * vrange
                         vmax += 0.05 * vrange
                 except: pass
-        panel_limits.append((vmin, vmax))
-
-    # --- Sync limits if comparing and scale mode requires it ---
-    if panels >= 2 and scale_mode != 'independent':
-        # Find the universal vmin/vmax across all active panels
-        active_limits = panel_limits[:panels]
-        all_v = [v for l in active_limits for v in l if v is not None]
-        if len(all_v) >= 2:
-            common_vmin, common_vmax = min(all_v), max(all_v)
-            panel_limits = [(common_vmin, common_vmax)] * panels
+        common_vmin, common_vmax = vmin, vmax
 
     # --- Now Render ---
     for i in range(panels):
@@ -1681,12 +1751,11 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         is_norm = 'yes' in (norms[i] or [])
         is_baseline = (prot == 'baseline_C')
         real_prot = 'C' if is_baseline else prot
-        vmin, vmax = panel_limits[i]
         
-        # --- Segurança Extra: Forçar grupo correto para o protocolo ---
-        if prot == 'A' and group not in ['CV', 'SV']:
+        # --- Segurança Extra: Forçar grupo/fase correto para o protocolo ---
+        if prot == 'A' and group not in ['CV', 'SV', 'Ambos']:
             group = 'CV'
-        elif prot == 'B' and group not in ['CF', 'SF']:
+        elif prot == 'B' and group not in ['CF', 'SF', 'Ambos']:
             group = 'CF'
             
         print(f"[DEBUG TOPO] Panel {i+1} | Prot: {prot} | Fase: {fase} | Group: {group} | Scale: {scale_mode}")
@@ -1694,7 +1763,7 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         img_b64, err = generate_topoplot_grid_base64(
             protocol=real_prot, fase=fase, group=group, 
             scale_db=scale_db, is_normalized=is_norm, is_baseline=is_baseline,
-            vmin=vmin, vmax=vmax
+            vmin=common_vmin, vmax=common_vmax, band_limits=band_limits
         )
         
         title_norm = " Normalizado" if is_norm else ""

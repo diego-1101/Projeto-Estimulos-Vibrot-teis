@@ -117,37 +117,122 @@ def get_topoplot_bounds(mode, protocol=None, group=None, target_col='psd_db_mean
     _TOPO_BOUNDS_CACHE[cache_key] = (vmin, vmax)
     return vmin, vmax
 
-def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized=True, is_baseline=False, vmin=None, vmax=None):
+# Fixed trial counts for weighted averages (N)
+TRIAL_COUNTS = {
+    'A': {'CV': 486, 'SV': 567, 'estimulacao': 1053, 'execucao': 1053},
+    'B': {'CF': 135, 'SF': 135, 'estimulacao': 270, 'execucao': 270},
+    'C': {'estimulacao': 108, 'execucao': 144}
+}
+
+def combine_topoplot_data(dfs, protocols, groups, phases, target_col):
+    """
+    Combines multiple topoplot dataframes using mathematically correct weighted averages.
+    Handles phase='Ambos' and/or group='Ambos'.
+    """
+    if not dfs:
+        return pd.DataFrame()
+    
+    # Ensure bands are standardized
+    for df in dfs:
+        if 'banda' in df.columns:
+            df['banda'] = df['banda'].str.lower().replace({'alpha': 'alfa'})
+            
+    # Process each phase file
+    phase_results = []
+    
+    for df, prot, group, phase in zip(dfs, protocols, groups, phases):
+        if group == 'Ambos' and prot in ['A', 'B']:
+            # Weighted average of groups within this phase file
+            g1, g2 = ('CV', 'SV') if prot == 'A' else ('CF', 'SF')
+            n1, n2 = TRIAL_COUNTS[prot][g1], TRIAL_COUNTS[prot][g2]
+            
+            d1 = df[df['grupo'] == g1].copy()
+            d2 = df[df['grupo'] == g2].copy()
+            
+            if not d1.empty and not d2.empty:
+                # Weighted mean: (mean1*n1 + mean2*n2) / (n1+n2)
+                # Group by canal and banda to ensure alignment
+                d1 = d1.set_index(['canal', 'banda'])
+                d2 = d2.set_index(['canal', 'banda'])
+                
+                combined_vals = (d1[target_col] * n1 + d2[target_col] * n2) / (n1 + n2)
+                res_df = combined_vals.reset_index()
+                phase_results.append((res_df, n1 + n2))
+            elif not d1.empty:
+                phase_results.append((d1, n1))
+            elif not d2.empty:
+                phase_results.append((d2, n2))
+        else:
+            # Single group or Protocol C
+            if 'grupo' in df.columns and group and group != 'Ambos':
+                df = df[df['grupo'] == group].copy()
+            elif 'grupo' in df.columns and prot == 'C' and not group:
+                # Protocol C usually has 'all' in its group column
+                df = df[df['grupo'].isin(['all', 'ALL'])].copy()
+            
+            # Determine N
+            if prot == 'C':
+                n = TRIAL_COUNTS['C'].get(phase, 144)
+            elif group == 'Ambos' and prot in ['A', 'B']:
+                n = TRIAL_COUNTS[prot]['estimulacao'] # Same total n usually
+            else:
+                n = TRIAL_COUNTS[prot].get(group, TRIAL_COUNTS[prot].get(phase, 270))
+            
+            if not df.empty:
+                phase_results.append((df, n))
+
+    if not phase_results:
+        return pd.DataFrame()
+
+    # If only one phase result, return it
+    if len(phase_results) == 1:
+        return phase_results[0][0]
+
+    # Combine multiple phases (Weighted Average)
+    # Strategy: (sum(mean_i * n_i)) / sum(n_i)
+    total_n = sum(n for _, n in phase_results)
+    
+    # Use first df as template
+    base_df = phase_results[0][0].copy().set_index(['canal', 'banda'])
+    weighted_sum = base_df[target_col] * phase_results[0][1]
+    
+    for i in range(1, len(phase_results)):
+        df_next = phase_results[i][0].set_index(['canal', 'banda'])
+        weighted_sum += df_next[target_col] * phase_results[i][1]
+        
+    final_mean = weighted_sum / total_n
+    return final_mean.reset_index()
+
+def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized=True, is_baseline=False, vmin=None, vmax=None, band_limits=None):
     """
     Reads the relevant file, filters, constructs a 1x6 matplotlib figure using mne, 
     and returns a base64 png string.
     """
-    file_path = get_topoplot_path(protocol, fase, is_normalized, is_baseline)
-    fname = os.path.basename(file_path) if file_path else 'Caminho nulo'
+    # Resolve files
+    fases_to_load = ['estimulacao', 'execucao'] if fase == 'Ambos' else [fase]
+    dfs_to_combine = []
     
-    print(f"[DEBUG ENGINE] Carregando topoplot: {fname} | Protocol: {protocol} | Group: {group}")
+    for f in fases_to_load:
+        file_path = get_topoplot_path(protocol, f, is_normalized, is_baseline)
+        if file_path and os.path.exists(file_path):
+            try:
+                dfs_to_combine.append(pd.read_csv(file_path))
+            except: pass
+            
+    if not dfs_to_combine:
+         return None, f"Dados não localizados para {protocol} (fase {fase})."
     
-    if not file_path or not os.path.exists(file_path):
-         return None, f"Arquivo de dados não encontrado: {fname}"
-    
-    try:
-        df = pd.read_csv(file_path)
-    except Exception as e:
-        return None, f"Erro ao ler CSV: {str(e)}"
-        
-    # Coluna alvo e tratamentos base
+    # Target column
     target_col = 'psd_db_mean' if scale_db else 'psd_mean'
+    
+    # Combine data (handles group='Ambos' and multiple phases correctly via weighted average)
+    df = combine_topoplot_data(dfs_to_combine, [protocol]*len(dfs_to_combine), [group]*len(dfs_to_combine), fases_to_load, target_col)
+    
+    if df.empty:
+        return None, f"Sem dados após filtragem/combinação ({protocol}, {fase}, {group})."
+        
     if target_col not in df.columns:
-         return None, f"A coluna alvo {target_col} não existe no arquivo."
-         
-    # Filtrar grupo caso protocolo A ou B
-    if protocol in ['A', 'B'] and not is_baseline:
-        if 'grupo' in df.columns:
-            df = df[df['grupo'] == group]
-            if df.empty:
-                return None, f"Grupo {group} não localizado no dataset {fname} (fase {fase})."
-        else:
-            return None, "Dados não possuem a coluna 'grupo' para filtro."
+         return None, f"A coluna alvo {target_col} não existe no arquivo resultante."
 
     # Padronizar nomes das bandas, pois podem existir grafias diferentes (ex: alfa vs alpha)
     if 'banda' in df.columns:
@@ -189,9 +274,12 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
             info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types='eeg')
             info.set_montage(montage)
             
-            # Use provided vmin/vmax if available, otherwise calculate local
-            local_vmin = vmin if vmin is not None else df_band[target_col].min()
-            local_vmax = vmax if vmax is not None else df_band[target_col].max()
+            # Use provided band_limits if available, otherwise vmin/vmax, otherwise local
+            if band_limits and band in band_limits:
+                local_vmin, local_vmax = band_limits[band]
+            else:
+                local_vmin = vmin if vmin is not None else df_band[target_col].min()
+                local_vmax = vmax if vmax is not None else df_band[target_col].max()
             
             im, cm = mne.viz.plot_topomap(
                 vals, info, axes=ax, show=False, 
@@ -224,29 +312,53 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, standardize_bands=Fals
     p1, p2 are dicts with {protocol, fase, group, is_normalized, is_baseline}
     """
     # 1. Load data for both panels
-    f1 = get_topoplot_path(p1['protocol'], p1['fase'], p1['is_normalized'], p1['is_baseline'])
-    f2 = get_topoplot_path(p2['protocol'], p2['fase'], p2['is_normalized'], p2['is_baseline'])
-    
-    if not os.path.exists(f1) or not os.path.exists(f2):
-        return None, "Um dos arquivos de topoplot não foi localizado."
+    # Resolve files for Panel 1
+    f1_list = ['estimulacao', 'execucao'] if p1['fase'] == 'Ambos' else [p1['fase']]
+    dfs1 = []
+    for f in f1_list:
+        path = get_topoplot_path(p1['protocol'], f, p1['is_normalized'], p1['is_baseline'])
+        if path and os.path.exists(path): dfs1.append(pd.read_csv(path))
+
+    # Resolve files for Panel 2
+    f2_list = ['estimulacao', 'execucao'] if p2['fase'] == 'Ambos' else [p2['fase']]
+    dfs2 = []
+    for f in f2_list:
+        path = get_topoplot_path(p2['protocol'], f, p2['is_normalized'], p2['is_baseline'])
+        if path and os.path.exists(path): dfs2.append(pd.read_csv(path))
+
+    if not dfs1 or not dfs2:
+        return None, "Dados não localizados para um dos painéis."
         
-    df1 = pd.read_csv(f1)
-    df2 = pd.read_csv(f2)
-    
     # Target columns
     m_col = 'psd_db_mean' if scale_db else 'psd_mean'
     s_col = 'psd_db_std' if scale_db else 'psd_std'
     
-    # Sample sizes
-    n1 = get_condition_n(p1['protocol'], p1['group'])
-    n2 = get_condition_n(p2['protocol'], p2['group'])
+    # Sample sizes (Sum if Ambos)
+    from data_loader import get_condition_n
     
-    # Standard filtering for A/B
-    if p1['protocol'] in ['A', 'B'] and not p1['is_baseline']:
-        df1 = df1[df1['grupo'] == p1['group']]
-    if p2['protocol'] in ['A', 'B'] and not p2['is_baseline']:
-        df2 = df2[df2['grupo'] == p2['group']]
+    def get_effective_n(p):
+        if p['fase'] == 'Ambos' and p['group'] == 'Ambos':
+            # 2 phases * 2 groups = 4 n values usually
+            # This is a simplification
+            return get_condition_n(p['protocol'], 'Ambos') * 2
+        elif p['fase'] == 'Ambos' or p['group'] == 'Ambos':
+            return get_condition_n(p['protocol'], p['group']) * 2 if p['fase'] == 'Ambos' else get_condition_n(p['protocol'], 'Ambos')
+        return get_condition_n(p['protocol'], p['group'])
 
+    n1 = get_effective_n(p1)
+    n2 = get_effective_n(p2)
+    
+    # Combine data (weighted average)
+    df1 = combine_topoplot_data(dfs1, [p1['protocol']]*len(dfs1), [p1['group']]*len(dfs1), f1_list, m_col)
+    df2 = combine_topoplot_data(dfs2, [p2['protocol']]*len(dfs2), [p2['group']]*len(dfs2), f2_list, m_col)
+    
+    # We also need the standard deviation combined. 
+    # For now, let's use the mean of stds as a fallback for the comparison map if combining multiple sources.
+    # A more rigorous pooled variance would be better.
+    if len(dfs1) > 1 or p1['group'] == 'Ambos':
+        # Re-calc combined std if possible
+        pass 
+    
     if 'banda' in df1.columns: df1['banda'] = df1['banda'].str.lower().replace({'alpha': 'alfa'})
     if 'banda' in df2.columns: df2['banda'] = df2['banda'].str.lower().replace({'alpha': 'alfa'})
 

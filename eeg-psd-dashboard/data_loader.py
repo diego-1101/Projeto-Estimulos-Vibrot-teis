@@ -194,14 +194,15 @@ def get_condition_n(protocol, group):
     Helper to get the number of trials for a given protocol and group.
     """
     try:
-        # Avoid circular imports if any, but here we are in data_loader.py
-        # Protocol C handling is done in load_data
+        # Avoid circular imports
         df, _ = load_data(protocol=protocol)
         
         if protocol == 'baseline_C':
              return len(df)
              
-        if group and 'grupo' in df.columns:
+        if group == 'Ambos':
+            n = len(df)
+        elif group and 'grupo' in df.columns:
             n = len(df[df['grupo'] == group])
         else:
             n = len(df)
@@ -209,4 +210,4 @@ def get_condition_n(protocol, group):
         return max(n, 2) # t-test needs at least 2 samples
     except Exception as e:
         print(f"Error getting n for {protocol}/{group}: {e}")
-        return 30 # Default safety fallback for typical datasets
+        return 30 # Default safety fallback
