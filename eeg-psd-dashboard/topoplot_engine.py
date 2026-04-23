@@ -218,7 +218,7 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
     
     return base64.b64encode(buf.getvalue()).decode('utf-8'), None
 
-def generate_topoplot_comparison_base64(p1, p2, scale_db, standardize_bands=False):
+def generate_topoplot_comparison_base64(p1, p2, scale_db, standardize_bands=False, label1="Panel 1", label2="Panel 2"):
     """
     Computes t-tests between two topoplot conditions and plots the difference map.
     p1, p2 are dicts with {protocol, fase, group, is_normalized, is_baseline}
@@ -282,9 +282,20 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, standardize_bands=Fals
         )
         diff_vals = mean1 - mean2
         
+        # Collect significant channels for the summary
+        curr_channels = []
+        for ch, p, diff in zip(ch_names, p_vals, diff_vals):
+            if p < 0.05:
+                curr_channels.append({'ch': ch, 'p': p, 'diff': diff})
+        
         band_diffs[band] = diff_vals
         band_masks[band] = p_vals < 0.05
         band_ch_names[band] = ch_names
+        
+        stats_data.append({
+            'band': band.capitalize(),
+            'channels': curr_channels
+        })
         
         if standardize_bands:
             vabs_curr = np.max(np.abs(diff_vals)) if len(diff_vals) > 0 else 0
@@ -298,7 +309,6 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, standardize_bands=Fals
         if band not in band_diffs:
             ax.set_title(band.capitalize())
             ax.axis('off')
-            stats_data.append(band_summary)
             continue
 
         diff_vals = band_diffs[band]
@@ -338,7 +348,7 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, standardize_bands=Fals
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=120)
     plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode('utf-8'), stats_data, f"T-Test (Panel 1 vs 2) | n1={n1}, n2={n2} | p < 0.05 highlighted with X."
+    return base64.b64encode(buf.getvalue()).decode('utf-8'), stats_data, f"T-Test ({label1} vs {label2}) | n1={n1}, n2={n2} | p < 0.05 destacado com X."
 
 def get_channel_reference_base64():
     """

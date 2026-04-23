@@ -762,10 +762,15 @@ def get_topoplot_layout():
                 ], className="p-2 border rounded")
             ], open=True, className="mb-3"),
 
-            dcc.Checklist(
-                id='topo-comparison-toggle',
-                options=[{'label': ' Enable Comparison', 'value': 'yes'}],
-                value=[],
+            html.Label("Número de Plots", className="control-label"),
+            dcc.RadioItems(
+                id='topo-plot-count-radio',
+                options=[
+                    {'label': ' 1 Plot', 'value': 1},
+                    {'label': ' 2 Plots', 'value': 2},
+                    {'label': ' 3 Plots', 'value': 3}
+                ],
+                value=1,
                 className="mb-3"
             ),
             
@@ -808,6 +813,56 @@ def get_topoplot_layout():
                         html.Label("Scale", className="control-label"),
                         dcc.RadioItems(
                             id={'type': 'topo-scale-radio', 'index': 2},
+                            options=[
+                                {'label': ' Linear (psd_mean)', 'value': 'linear'},
+                                {'label': ' dB (psd_db_mean)', 'value': 'db'}
+                            ],
+                            value='db',
+                            className="mb-3"
+                        )
+                    ], className="p-2 border rounded")
+                ], open=True, className="mb-3")
+            ]),
+            
+            html.Div(id='topo-controls-3-wrapper', style={'display':'none'}, children=[
+                html.Details([
+                    html.Summary("🔧 Options - Panel 3", style={'cursor': 'pointer', 'fontWeight': 'bold', 'marginBottom': '10px'}),
+                    html.Div([
+                        html.Label("Protocol", className="control-label"),
+                        dcc.Dropdown(
+                            id={'type': 'topo-prot-dropdown', 'index': 3},
+                            options=[
+                                {'label': 'Protocol A', 'value': 'A'},
+                                {'label': 'Protocol B', 'value': 'B'},
+                                {'label': 'Protocol C', 'value': 'C'},
+                                {'label': 'Protocol C (Baseline)', 'value': 'baseline_C'}
+                            ],
+                            value='C',
+                            className="mb-3 dash-dropdown"
+                        ),
+                        
+                        html.Div(id={'type': 'topo-fase-container', 'index': 3}, children=[
+                            html.Label("Fase", className="control-label"),
+                            dcc.Dropdown(id={'type': 'topo-fase-dropdown', 'index': 3}, className="mb-3 dash-dropdown"),
+                        ]),
+                        
+                        html.Div(id={'type': 'topo-group-container', 'index': 3}, children=[
+                            html.Label("Group", className="control-label"),
+                            dcc.Dropdown(id={'type': 'topo-group-dropdown', 'index': 3}, className="mb-3 dash-dropdown")
+                        ]),
+                        
+                        html.Div(id={'type': 'topo-norm-container', 'index': 3}, children=[
+                            dcc.Checklist(
+                                id={'type': 'topo-norm-check', 'index': 3},
+                                options=[{'label': ' Normalizado', 'value': 'yes'}],
+                                value=['yes'],
+                                className="mb-3"
+                            )
+                        ], style={'display': 'none'}),
+                        
+                        html.Label("Scale", className="control-label"),
+                        dcc.RadioItems(
+                            id={'type': 'topo-scale-radio', 'index': 3},
                             options=[
                                 {'label': ' Linear (psd_mean)', 'value': 'linear'},
                                 {'label': ' dB (psd_db_mean)', 'value': 'db'}
@@ -983,9 +1038,11 @@ def toggle_quick_guide(btn_clicks, close_clicks, current_style):
     Output('math-model-container', 'children'),
     [Input('protocol-dropdown', 'value'),
      Input({'type': 'x-mode-dropdown', 'index': 1}, 'value'),
+     Input({'type': 'fase-dropdown', 'index': 1}, 'value'),
+     Input({'type': 'channels-dropdown', 'index': 1}, 'value'),
      Input({'type': 'y-checklist', 'index': 1}, 'value')]
 )
-def update_math_model(prot, x_mode, y_cols):
+def update_math_model(prot, x_mode, fase, channels, y_cols):
     try:
         # Load caching internally so it doesn't freeze the UI
         if prot not in data_cache:
@@ -997,7 +1054,10 @@ def update_math_model(prot, x_mode, y_cols):
         if not y_cols:
             y_cols = ['Desempenho']
             
-        X = build_X(df, x_mode)
+        if not channels:
+            channels = ['CZ', 'C3', 'C4']
+
+        X = build_X(df, x_mode, fase=fase, selected_channels=channels)
         Y = build_Y(df, y_cols)
         
         T = X.shape[0] if not X.empty else "T"
@@ -1501,15 +1561,15 @@ def update_topo_protocol_options(prot):
     [Output('topo-scale-mode-dropdown', 'options'),
      Output('topo-scale-mode-dropdown', 'value')],
     [Input({'type': 'topo-prot-dropdown', 'index': ALL}, 'value'),
-     Input('topo-comparison-toggle', 'value')],
+     Input('topo-plot-count-radio', 'value')],
     State('topo-scale-mode-dropdown', 'value')
 )
-def update_topo_scale_options(prots, comp_toggle, current_val):
+def update_topo_scale_options(prots, plot_count, current_val):
     """
     Hides 'Por Protocolo e Fase' only for Baseline.
     Adds 'Por Protocolo, Fase e Grupo' for Protocol A/B.
     """
-    active_prots = prots[:2] if 'yes' in (comp_toggle or []) else prots[:1]
+    active_prots = prots[:plot_count] if plot_count else prots[:1]
     
     # Check conditions
     has_baseline = any(p == 'baseline_C' for p in active_prots)
@@ -1535,11 +1595,14 @@ def update_topo_scale_options(prots, comp_toggle, current_val):
     return base_options, current_val
 
 @app.callback(
-    Output('topo-controls-2-wrapper', 'style'),
-    Input('topo-comparison-toggle', 'value')
+    [Output('topo-controls-2-wrapper', 'style'),
+     Output('topo-controls-3-wrapper', 'style')],
+    Input('topo-plot-count-radio', 'value')
 )
-def toggle_topo_comparison(enabled):
-    return {'display': 'block'} if 'yes' in (enabled or []) else {'display': 'none'}
+def toggle_topo_panels(count):
+    style2 = {'display': 'block'} if count >= 2 else {'display': 'none'}
+    style3 = {'display': 'block'} if count >= 3 else {'display': 'none'}
+    return style2, style3
 
 @app.callback(
     [Output('topo-output-container', 'children'),
@@ -1550,11 +1613,11 @@ def toggle_topo_comparison(enabled):
      State({'type': 'topo-group-dropdown', 'index': ALL}, 'value'),
      State({'type': 'topo-scale-radio', 'index': ALL}, 'value'),
      State({'type': 'topo-norm-check', 'index': ALL}, 'value'),
-     State('topo-comparison-toggle', 'value'),
+     State('topo-plot-count-radio', 'value'),
      State('topo-scale-mode-dropdown', 'value')],
     prevent_initial_call=True
 )
-def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle, scale_mode):
+def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, scale_mode):
     if not n_clicks:
         from dash.exceptions import PreventUpdate
         raise PreventUpdate
@@ -1562,8 +1625,7 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle, sc
     outputs = []
     messages = []
     
-    do_comp = 'yes' in (comp_toggle or [])
-    panels = 2 if do_comp else 1
+    panels = plot_count if plot_count else 1
     
     # --- Pre-calculate Bounds for all panels ---
     panel_limits = []
@@ -1602,13 +1664,13 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle, sc
         panel_limits.append((vmin, vmax))
 
     # --- Sync limits if comparing and scale mode requires it ---
-    if do_comp and scale_mode != 'independent':
-        # Find the universal vmin/vmax across both panels
-        l1, l2 = panel_limits[0], panel_limits[1]
-        all_v = [v for l in [l1, l2] for v in l if v is not None]
+    if panels >= 2 and scale_mode != 'independent':
+        # Find the universal vmin/vmax across all active panels
+        active_limits = panel_limits[:panels]
+        all_v = [v for l in active_limits for v in l if v is not None]
         if len(all_v) >= 2:
             common_vmin, common_vmax = min(all_v), max(all_v)
-            panel_limits = [(common_vmin, common_vmax)] * 2
+            panel_limits = [(common_vmin, common_vmax)] * panels
 
     # --- Now Render ---
     for i in range(panels):
@@ -1660,60 +1722,71 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, comp_toggle, sc
             messages.append(f"Panel {i+1} Rendered Successfully.")
             
     # --- Statistical Comparison Row ---
-    if do_comp and len(prots) >= 2:
-        # Prepare inputs for engine
-        p1 = {
-            'protocol': 'C' if (prots[0] == 'baseline_C') else prots[0],
-            'fase': fases[0],
-            'group': groups[0],
-            'is_normalized': 'yes' in (norms[0] or []),
-            'is_baseline': (prots[0] == 'baseline_C')
-        }
-        p2 = {
-            'protocol': 'C' if (prots[1] == 'baseline_C') else prots[1],
-            'fase': fases[1],
-            'group': groups[1],
-            'is_normalized': 'yes' in (norms[1] or []),
-            'is_baseline': (prots[1] == 'baseline_C')
-        }
-        
-        # We share the scale of the first panel for the comparison t-test selection logic
-        # (Though differentiate is always diff of means)
-        img_comp, stats_data, msg_comp = generate_topoplot_comparison_base64(
-            p1, p2, scales[0] == 'db', 
-            standardize_bands=(scale_mode != 'independent')
-        )
-        
-        if img_comp:
-            # Build the details list
-            details_children = []
-            for band_info in stats_data:
-                if band_info['channels']:
-                    details_children.append(html.B(f"{band_info['band']}: ", className="text-primary"))
-                    # Create a string like "C3 (p=0.001), Pz (p=0.045)"
-                    ch_list = ", ".join([f"{c['ch']} (p={c['p']:.3f})" for c in band_info['channels']])
-                    details_children.append(html.Span(ch_list))
-                    details_children.append(html.Br())
+    if panels >= 2:
+        # Define comparisons based on panels count
+        comps = []
+        if panels == 2:
+            comps = [(0, 1)]
+        elif panels == 3:
+            comps = [(0, 1), (0, 2), (1, 2)]
             
-            if not details_children:
-                details_children = [html.I("Nenhum canal significativo encontrado (p < 0.05).")]
+        for idx1, idx2 in comps:
+            # Prepare inputs for engine
+            p1 = {
+                'protocol': 'C' if (prots[idx1] == 'baseline_C') else prots[idx1],
+                'fase': fases[idx1],
+                'group': groups[idx1],
+                'is_normalized': 'yes' in (norms[idx1] or []),
+                'is_baseline': (prots[idx1] == 'baseline_C')
+            }
+            p2 = {
+                'protocol': 'C' if (prots[idx2] == 'baseline_C') else prots[idx2],
+                'fase': fases[idx2],
+                'group': groups[idx2],
+                'is_normalized': 'yes' in (norms[idx2] or []),
+                'is_baseline': (prots[idx2] == 'baseline_C')
+            }
+            
+            label1 = f"Painel {idx1+1}"
+            label2 = f"Painel {idx2+1}"
+            
+            # We share the scale of the first panel for the comparison t-test selection logic
+            img_comp, stats_data, msg_comp = generate_topoplot_comparison_base64(
+                p1, p2, scales[0] == 'db', 
+                standardize_bands=(scale_mode != 'independent'),
+                label1=label1, label2=label2
+            )
+            
+            if img_comp:
+                # Build the details list
+                details_children = []
+                for band_info in stats_data:
+                    if band_info['channels']:
+                        details_children.append(html.B(f"{band_info['band']}: ", className="text-primary"))
+                        # Create a string like "C3 (p=0.001), Pz (p=0.045)"
+                        ch_list = ", ".join([f"{c['ch']} (p={c['p']:.3f})" for c in band_info['channels']])
+                        details_children.append(html.Span(ch_list))
+                        details_children.append(html.Br())
+                
+                if not details_children:
+                    details_children = [html.I("Nenhum canal significativo encontrado (p < 0.05).")]
 
-            outputs.append(html.Div([
-                html.H4("Statistical Difference (Panel 1 - Panel 2)", className="text-center text-danger"),
-                html.P(msg_comp, className="text-center text-muted small"),
-                html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
-                
-                # Statistical Details Toggle
-                html.Details([
-                    html.Summary("📊 Detalhes Estatísticos (Canais Significativos)", 
-                                 style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#dc3545', 'marginTop': '10px'}),
-                    html.Div(details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
-                ], className="mt-2")
-                
-            ], className="card p-3 shadow-sm border-danger", style={'borderWidth': '2px'}))
-            messages.append("Statistical Comparison Rendered.")
-        else:
-            messages.append(f"Comparison Failed: {msg_comp}")
+                outputs.append(html.Div([
+                    html.H4(f"Comparação Estatística: {label1} vs {label2}", className="text-center text-danger"),
+                    html.P(msg_comp, className="text-center text-muted small"),
+                    html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
+                    
+                    # Statistical Details Toggle
+                    html.Details([
+                        html.Summary(f"📊 Detalhes Estatísticos ({label1} vs {label2})", 
+                                     style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#dc3545', 'marginTop': '10px'}),
+                        html.Div(details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
+                    ], className="mt-2")
+                    
+                ], className="card p-3 shadow-sm border-danger", style={'borderWidth': '2px', 'marginTop': '20px'}))
+                messages.append(f"Comparison {label1} vs {label2} Rendered.")
+            else:
+                messages.append(f"Comparison {label1} vs {label2} Failed: {msg_comp}")
             
     return outputs, " | ".join(messages)
 
