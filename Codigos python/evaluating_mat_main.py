@@ -39,19 +39,19 @@ print('Teste de Normalidade dos desempenhos de todo Protocolo A')
 print('---'*100)
 normalidade_A = ev.teste_normalidade_completo(df_protA['Desempenho'])
 
-# --------------------------------------- ANOVA ---------------------------------------
+#%% --------------------------------------- ANOVA ---------------------------------------
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from statsmodels.stats.multicomp import MultiComparison
 
-modelo = ols('Desempenho_ponderado ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
+modelo = ols('Desempenho ~ C(grupo) * C(Complexidade) * C(Overlap)', data=df_protA).fit()
 anova = sm.stats.anova_lm(modelo, typ=3)
 print("Resultados da ANOVA do protocolo A:")
 print(anova)
 print('---'*100)
 
 # Post-hoc test (Tukey's HSD)
-mc = MultiComparison(df_protA['Desempenho_ponderado'], df_protA['grupo'])
+mc = MultiComparison(df_protA['Desempenho'], df_protA['grupo'])
 resultado = mc.tukeyhsd()
 print(resultado.summary())
 print('---'*100)
