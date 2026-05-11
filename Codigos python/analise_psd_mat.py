@@ -897,7 +897,7 @@ for ind in df_especifico['psd_ProtA_CV_especifico_df'].index:
 #%% Preparando os dados para as análises multivariadas feitas no site do dashboard e através da PLS
 
 # Escolhendo se vamos fazer com a fases de Estimulção(protA e protB)/Exploracao(ProtC) ou Execução (protA, protB e protC) 
-fase = 2 # 1-> Estimulação/Exploracao, 2-> Execucao 
+fase = 1 # 1-> Estimulação/Exploracao, 2-> Execucao 
 
 # 1) Pegando os dados de desempenho
 df_protA = pd.read_csv('df_protA.csv')
@@ -1732,15 +1732,20 @@ if fase == 1:
         'CV': 'Baseline OF', # Na estimulação -> OF, na execução -> OA
         'SV': 'Baseline OF'
     }
+    relacoes_B = {
+    'CF': 'Baseline OA', # Na estimulação -> OF, na execução -> OF
+    'SF': 'Baseline OA' # Na estimulação -> OA, na execução -> OF
+    }
 else:
     relacoes_A = {
         'CV': 'Baseline OA', # Na estimulação -> OF, na execução -> OA
         'SV': 'Baseline OF'
     }
-relacoes_B = {
-    'CF': 'Baseline OF',
-    'SF': 'Baseline OF'
-}
+    relacoes_B = {
+        'CF': 'Baseline OF', # Na estimulação -> OA, na execução -> OF
+        'SF': 'Baseline OF' # Na estimulação -> OA, na execução -> OF
+    }
+
 relacao_C = 'Baseline OA'
 
 
