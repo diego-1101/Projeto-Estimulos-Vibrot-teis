@@ -7,6 +7,8 @@ from scipy.stats import shapiro, kstest
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from statsmodels.stats.multicomp import MultiComparison
+from statsmodels.stats.libqsturng import psturng, qsturng
+from itertools import combinations
 
 def run_normality_test(data_series, alpha=0.05):
     """
@@ -43,7 +45,87 @@ def run_anova_typ3(df, target, independents):
     except Exception as e:
         return None, str(e)
 
-def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True):
+def tukey_hsd_from_model(data, response_col, group_col, anova_table, alpha=0.05):
+    """
+    Post-hoc de Tukey usando o MSE residual do modelo fatorial.
+    Compatível com statsmodels anova_lm tipo III.
+    """
+    if anova_table is None:
+        return None
+    
+    # anova_table can be a DataFrame or a list of dicts (from Dash DataTable)
+    if isinstance(anova_table, list):
+        temp_df = pd.DataFrame(anova_table)
+        # Procura linha de Resíduo de forma mais flexível
+        res_mask = temp_df.iloc[:, 0].astype(str).str.contains('Residual|Resid|Resíduo', case=False, na=False)
+        if not any(res_mask): 
+            print("DEBUG TUKEY: Linha 'Residual' não encontrada na tabela.")
+            return None
+        res_row = temp_df[res_mask].iloc[0]
+        
+        def to_float(x):
+            if pd.isna(x) or x == "": return 0.0
+            try: return float(str(x).replace(',', '.'))
+            except: return 0.0
+            
+        sum_sq = to_float(res_row.get('Soma dos Quadrados', res_row.get('sum_sq', 0)))
+        df_resid = to_float(res_row.get('df', 0))
+        ms_residual = sum_sq / df_resid if df_resid > 0 else 0
+        print(f"DEBUG TUKEY (List): MSE={ms_residual:.6f}, DF={df_resid}")
+    else:
+        if 'Residual' not in anova_table.index:
+            print("DEBUG TUKEY: 'Residual' não está no índice do DataFrame.")
+            return None
+        res_row = anova_table.loc['Residual']
+        df_resid = res_row['df']
+        if 'mean_sq' in anova_table.columns:
+            ms_residual = res_row['mean_sq']
+        else:
+            ms_residual = res_row['sum_sq'] / df_resid if df_resid > 0 else 0
+        print(f"DEBUG TUKEY (DF): MSE={ms_residual:.6f}, DF={df_resid}")
+
+    if ms_residual <= 0 or df_resid <= 0:
+        print("DEBUG TUKEY: MSE ou DF inválidos (<= 0). Verifique a tabela da ANOVA.")
+        return None
+
+    grupos = sorted(data[group_col].astype(str).unique())
+    k = len(grupos)
+    resultados = []
+    
+    for g1, g2 in combinations(grupos, 2):
+        y1 = data[data[group_col].astype(str) == g1][response_col].dropna().values
+        y2 = data[data[group_col].astype(str) == g2][response_col].dropna().values
+        if len(y1) == 0 or len(y2) == 0: continue
+        
+        n1, n2 = len(y1), len(y2)
+        mean_diff = np.mean(y1) - np.mean(y2)
+        
+        # Erro padrão para Tukey (Studentized Range)
+        se = np.sqrt(ms_residual / 2.0 * (1.0/n1 + 1.0/n2))
+        
+        # Estatística q
+        q_stat = abs(mean_diff) / se if se > 0 else 0
+        
+        # p-value (psturng espera q, k, df)
+        p_val_raw = psturng(q_stat, k, df_resid)
+        # Garantir que p_val seja um float escalar puro do Python
+        p_val = float(np.atleast_1d(p_val_raw)[0])
+        p_val = min(p_val, 1.0)
+        
+        is_sig = p_val < alpha
+        stars = '***' if p_val < 0.001 else ('**' if p_val < 0.01 else ('*' if p_val < 0.05 else 'ns'))
+        
+        resultados.append({
+            'group1': g1,
+            'group2': g2,
+            'p-adj': p_val,
+            'stars': stars,
+            'reject': bool(is_sig)
+        })
+            
+    return pd.DataFrame(resultados)
+
+def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None):
     """
     Creates an interactive dot plot with means, 95% CI, and significance brackets.
     """
@@ -95,18 +177,26 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
     sig_results = []
     if show_sig_bars and len(order) >= 2:
         try:
-            mc = MultiComparison(data[y_col], data[x_col])
-            res = mc.tukeyhsd(alpha=alpha)
-            # Create a dataframe from tukey results
-            res_df = pd.DataFrame(data=res._results_table.data[1:], columns=res._results_table.data[0])
+            if anova_table is not None:
+                # Use model-based Tukey
+                res_df = tukey_hsd_from_model(data, y_col, x_col, anova_table, alpha=alpha)
+            else:
+                # Fallback to standard One-Way Tukey
+                mc = MultiComparison(data[y_col], data[x_col])
+                res = mc.tukeyhsd(alpha=alpha)
+                res_df = pd.DataFrame(data=res._results_table.data[1:], columns=res._results_table.data[0])
             
-            sig_pairs = []
-            for _, row in res_df.iterrows():
-                if row['reject']:
-                    p_val = row.get('p-adj', 0.05) # if it doesn't exist, we assume it's under alpha due to reject=True
-                    stars = '***' if p_val < 0.001 else ('**' if p_val < 0.01 else '*')
-                    sig_pairs.append((str(row['group1']), str(row['group2']), stars, p_val))
-                    sig_results.append({'group1': row['group1'], 'group2': row['group2'], 'p-adj': p_val, 'stars': stars})
+            if res_df is not None and not res_df.empty:
+                sig_pairs = []
+                for _, row in res_df.iterrows():
+                    # check for 'reject' or 'p-adj' < alpha
+                    is_rejected = row.get('reject', False) or row.get('p-adj', 1.0) < alpha
+                    if is_rejected:
+                        p_val = row.get('p-adj', alpha)
+                        # Generate stars if not present
+                        stars = row.get('stars', '***' if p_val < 0.001 else ('**' if p_val < 0.01 else '*'))
+                        sig_pairs.append((str(row['group1']), str(row['group2']), stars, p_val))
+                        sig_results.append({'group1': row['group1'], 'group2': row['group2'], 'p-adj': p_val, 'stars': stars})
 
             # Draw brackets
             if sig_pairs:

@@ -2258,7 +2258,7 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha):
     if prot == 'C' and 'Fase' in df.columns:
         df = df[df['Fase'] == 'Fase Execucao'].copy()
     gc = "_".join(factors); df[gc] = df[factors].astype(str).agg('_'.join, axis=1)
-    fig, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]")
+    fig, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data)
     if err: return fig, html.Div(err, className="alert alert-warning")
     if not sig: return fig, html.Div("Nenhuma diferença significativa encontrada.", className="alert alert-info")
     from dash import dash_table; sdf = pd.DataFrame(sig)
