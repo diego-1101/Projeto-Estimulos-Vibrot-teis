@@ -203,7 +203,18 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, label1="Panel 1", labe
         all_ps.extend(p_vals)
         comp_results.append((band, chs, m1 - m2, p_vals))
     
-    is_sig_global = [(pv < 0.05 if not np.isnan(pv) else False) for pv in all_ps]
+    import statsmodels.stats.multitest as mt
+    is_sig_global = []
+    
+    for band, chs, diff, pvals in comp_results:
+        # T-test pode retornar NaNs se os desvios padrão forem zero, vamos tratar isso
+        valid_pvals = np.nan_to_num(pvals, nan=1.0) 
+        if len(valid_pvals) > 0:
+            reject, _, _, _ = mt.multipletests(valid_pvals, alpha=0.05, method='fdr_bh')
+            is_sig_global.extend(reject.tolist())
+        else:
+            is_sig_global.extend([False] * len(valid_pvals))
+            
     is_sig_global = np.array(is_sig_global, dtype=bool)
     
     fig, axes = plt.subplots(1, 6, figsize=(15, 4), facecolor='none')
@@ -260,18 +271,36 @@ def generate_anova_map_base64(panels_data, scale_db):
         all_ps.extend(pvals)
         anova_results.append((band, chs, pvals))
 
-    is_sig_global = [(pv < 0.05 if not np.isnan(pv) else False) for pv in all_ps]
+    import statsmodels.stats.multitest as mt
+    
+    is_sig_global = []
+    # Aplicando FDR (False Discovery Rate) por banda para correção de múltiplas comparações
+    for band, chs, pvals in anova_results:
+        # Se tiver p-valores, ajustamos. Se não, tudo Falso.
+        if len(pvals) > 0:
+            reject, pvals_corrected, _, _ = mt.multipletests(pvals, alpha=0.05, method='fdr_bh')
+            is_sig_global.extend(reject.tolist())
+        else:
+            is_sig_global.extend([False] * len(pvals))
+            
     is_sig_global = np.array(is_sig_global, dtype=bool)
     
     fig, axes = plt.subplots(1, 6, figsize=(15, 4), facecolor='none')
     montage = mne.channels.make_standard_montage('standard_1020')
     sig_ptr = 0
+    anova_details = {} # Para o post-hoc ou análise detalhada depois
     for i, (band, chs, pvals) in enumerate(anova_results):
         ch_names = [CH_MAPPING.get(c.upper(), c) for c in chs]
         info = mne.create_info(ch_names, sfreq=100, ch_types='eeg')
         info.set_montage(montage)
         mask = is_sig_global[sig_ptr : sig_ptr + len(chs)]
         sig_ptr += len(chs)
+        
+        # Armazenar canais significativos para possível uso do Front-End
+        sig_channels = [ch for ch, is_sig in zip(chs, mask) if is_sig]
+        if sig_channels:
+            anova_details[band] = sig_channels
+            
         # Use a "significance map" (1 - p or just binary)
         v = 1.0 - np.array(pvals)
         im, _ = mne.viz.plot_topomap(v, info, axes=axes[i], show=False, contours=0, cmap='YlOrRd', vlim=(0.95, 1.0), mask=np.array(mask), mask_params=dict(marker='x', markerfacecolor='black', markersize=6))
@@ -281,7 +310,7 @@ def generate_anova_map_base64(panels_data, scale_db):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
     plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode('utf-8')
+    return base64.b64encode(buf.getvalue()).decode('utf-8'), anova_details
 
 def get_channel_reference_base64():
     """Generates a reference map of the 32 electrodes used."""

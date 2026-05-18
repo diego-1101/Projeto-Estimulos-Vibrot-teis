@@ -2047,12 +2047,27 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
 
         # 1. Global ANOVA Map (only for 3 panels)
         if panels == 3:
-            anova_img = generate_anova_map_base64(p_list, scales[0] == 'db')
+            anova_img, anova_stats = generate_anova_map_base64(p_list, scales[0] == 'db')
             if anova_img:
+                anova_details_children = []
+                for band, channels in anova_stats.items():
+                    if channels:
+                        anova_details_children.append(html.B(f"{band.capitalize()}: ", className="text-warning"))
+                        anova_details_children.append(html.Span(", ".join(channels)))
+                        anova_details_children.append(html.Br())
+                
+                if not anova_details_children:
+                    anova_details_children = [html.I("Nenhum canal sobreviveu à correção FDR (p < 0.05).")]
+
                 outputs.append(html.Div([
                     html.H4("Análise Global (One-Way ANOVA)", className="text-center text-warning"),
-                    html.P("Mapa de probabilidade (1-p). Cores quentes indicam variação significativa entre os 3 painéis em pelo menos um ponto.", className="text-center text-muted small"),
+                    html.P("Mapa de probabilidade (1-p). Cores quentes e marcações com 'x' indicam variação significativa entre os 3 painéis (corrigido por FDR).", className="text-center text-muted small"),
                     html.Img(src=f"data:image/png;base64,{anova_img}", style={'width':'100%', 'height':'auto'}),
+                    html.Details([
+                        html.Summary("📊 Detalhes Estatísticos (ANOVA Global + FDR)", 
+                                     style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#ffc107', 'marginTop': '10px'}),
+                        html.Div(anova_details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
+                    ], className="mt-2")
                 ], className="card p-3 shadow-sm border-warning", style={'borderWidth': '2px', 'marginTop': '20px'}))
                 messages.append("ANOVA Global Rendered.")
 
