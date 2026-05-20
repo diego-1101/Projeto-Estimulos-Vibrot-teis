@@ -229,9 +229,13 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, label1="Panel 1", labe
         mask = is_sig_global[sig_ptr : sig_ptr + len(chs)]
         sig_ptr += len(chs)
         
-        im, _ = mne.viz.plot_topomap(diff, info, axes=axes[i], show=False, contours=0, cmap='RdBu_r', mask=np.array(mask), mask_params=dict(marker='x', markerfacecolor='black', markersize=6))
+        import matplotlib.colors as mcolors
+        white_cmap = mcolors.ListedColormap(['white'])
+        v_zeros = np.zeros(len(diff))
+        
+        im, _ = mne.viz.plot_topomap(v_zeros, info, axes=axes[i], show=False, contours=0, cmap=white_cmap, vlim=(0, 1), mask=np.array(mask), mask_params=dict(marker='x', markeredgecolor='black', markersize=6))
         axes[i].set_title(band.capitalize(), fontsize=10)
-        fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
+        # fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
         
         band_sig = []
         for ch, p, s in zip(chs, pvals, mask):
@@ -301,11 +305,13 @@ def generate_anova_map_base64(panels_data, scale_db):
         if sig_channels:
             anova_details[band] = sig_channels
             
-        # Use a "significance map" (1 - p or just binary)
-        v = 1.0 - np.array(pvals)
-        im, _ = mne.viz.plot_topomap(v, info, axes=axes[i], show=False, contours=0, cmap='YlOrRd', vlim=(0.95, 1.0), mask=np.array(mask), mask_params=dict(marker='x', markerfacecolor='black', markersize=6))
+        import matplotlib.colors as mcolors
+        white_cmap = mcolors.ListedColormap(['white'])
+        v_zeros = np.zeros(len(pvals))
+        
+        im, _ = mne.viz.plot_topomap(v_zeros, info, axes=axes[i], show=False, contours=0, cmap=white_cmap, vlim=(0, 1), mask=np.array(mask), mask_params=dict(marker='x', markeredgecolor='black', markersize=6))
         axes[i].set_title(band.capitalize(), fontsize=10)
-        fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
+        # fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
