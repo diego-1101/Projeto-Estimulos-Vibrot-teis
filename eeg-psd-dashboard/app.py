@@ -180,7 +180,8 @@ def create_analysis_controls(panel_id):
         dcc.Dropdown(
             id={'type': 'x-mode-dropdown', 'index': panel_id},
             options=[
-                {'label': 'PSD Completo Normalizado (Baseline)', 'value': 'psd_full_norm'}
+                {'label': 'PSD Completo Normalizado (Baseline)', 'value': 'psd_full_norm'},
+                {'label': 'PSD Potência de 2 em 2 Hz Normalizado', 'value': 'psd_2em2_norm'}
             ],
             value='psd_full_norm',
             className="mb-3 dash-dropdown"
@@ -476,6 +477,24 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
              chisqs = ", ".join([f"{c:.1f}" for c in cdx['chisq']])
              stats_content.append(html.P([html.Strong("CDA X Ext. Dims: "), str(cdx['d'])]))
              stats_content.append(html.P([html.Strong("CDA X ChiSqs: "), chisqs]))
+             if 'explained_variance_ratio' in cdx:
+                 var_txt = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdx['explained_variance_ratio'])])
+                 stats_content.append(html.P([html.Strong("CDA X Var Explicada: "), var_txt]))
+             if 'eigenval' in cdx:
+                 eig_txt = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdx['eigenval'])])
+                 stats_content.append(html.P([html.Strong("CDA X Eigenvalues: "), eig_txt]))
+
+        if 'CDA_Y' in stats:
+             cdy = stats['CDA_Y']
+             chisqs_y = ", ".join([f"{c:.1f}" for c in cdy['chisq']])
+             stats_content.append(html.P([html.Strong("CDA Y Ext. Dims: "), str(cdy['d'])]))
+             stats_content.append(html.P([html.Strong("CDA Y ChiSqs: "), chisqs_y]))
+             if 'explained_variance_ratio' in cdy:
+                 var_txt_y = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdy['explained_variance_ratio'])])
+                 stats_content.append(html.P([html.Strong("CDA Y Var Explicada: "), var_txt_y]))
+             if 'eigenval' in cdy:
+                 eig_txt_y = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdy['eigenval'])])
+                 stats_content.append(html.P([html.Strong("CDA Y Eigenvalues: "), eig_txt_y]))
 
         # We must return 5 elements
         return fig, html.Div(stats_content or "No stats evaluated"), anova_fig, anova_res_text, html.Div(centroid_res, className="d-flex flex-wrap")
@@ -1298,6 +1317,23 @@ def update_math_model(prot, x_mode, fase, channels, y_cols):
         F = X.shape[1] if not X.empty else "F"
         C = Y.shape[1] if not Y.empty else 1
         
+        # Build human-readable X mode description
+        x_mode_labels = {
+            'psd_full_norm': 'PSD Completo Normalizado (Baseline)',
+            'psd_2em2_norm': 'PSD Potência de 2 em 2 Hz Normalizado'
+        }
+        x_mode_label = x_mode_labels.get(x_mode, x_mode)
+        
+        # Build X description with frequency resolution info
+        if x_mode == 'psd_2em2_norm':
+            n_channels = len(channels) if channels else 0
+            n_freq_bins = F // n_channels if n_channels > 0 else F
+            x_desc = f"Potência PSD normalizada em bins de 2 Hz (0–50 Hz → {n_freq_bins} bins × {n_channels} canais = {F} features)"
+        else:
+            n_channels = len(channels) if channels else 0
+            n_freq_pts = F // n_channels if n_channels > 0 else F
+            x_desc = f"PSD completo normalizado ({n_freq_pts} pontos de freq × {n_channels} canais = {F} features)"
+        
         math_str = rf'''
 $$
 X = \begin{{bmatrix}}
@@ -1319,7 +1355,9 @@ $$
 
 **Onde:**
 * **T = {T}**: Número total de *trials* analisados do protocolo {prot}.
-* **F = {F}**: Número de *features* em $X$ (modo: {x_mode}).
+* **F = {F}**: Número de *features* em $X$.
+* **Modo X**: {x_mode_label}
+* **Descrição X**: {x_desc}
 * **C = {C}**: Variáveis comportamentais integradas em $Y$.
 * $x_{{ij}}$ = valor oriundo no espaço PSD na banda/frequência *j* da execução *i*.
 * $y_{{ic}}$ = escore medido na target *c* da execução *i*.

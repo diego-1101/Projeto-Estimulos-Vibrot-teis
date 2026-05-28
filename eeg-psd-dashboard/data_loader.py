@@ -104,20 +104,41 @@ def _parse_eeg_array(val):
         return np.array(val)
     return np.array([])
 
+def _align_psd_df(full_df, df):
+    """
+    Align the loaded PSD dataframe rows with the metadata dataframe.
+    Handles cases where lengths differ due to data cleaning.
+    """
+    if len(full_df) == len(df):
+        full_df.index = df.index
+        return full_df
+    elif len(full_df) > len(df):
+        # If df was dropped (e.g. dropna on grupo), align via inner join if possible, or naive slice
+        full_df.index = df.index.parent if hasattr(df, "parent") else pd.RangeIndex(len(full_df))
+        full_df_clean = full_df.loc[df.index].copy()
+        return full_df_clean
+    else:
+        # Data is incomplete (e.g. Protocol C Stimulation has 108/144 trials).
+        # Assume the PSD rows correspond to the first N trials in the metadata.
+        full_df.index = df.index[:len(full_df)]
+        return full_df
+
+
 def build_X(df, x_mode, fase='estimulacao', selected_channels=None):
     """
     Constructs the X feature matrix based on the selected mode.
     Modes:
-      - 'psd_full_norm': Concatenates arrays from selected channels.
+      - 'psd_full_norm': Full PSD normalized (baseline). Columns: "CH_freqIndex" (e.g. FP1_0, CZ_50).
+      - 'psd_2em2_norm': PSD power in 2-in-2 Hz bins normalized. Columns: "psd_norm_{freq}Hz_{CH}" (e.g. psd_norm_0_2Hz_CZ).
     """
     if selected_channels is None:
          selected_channels = ['CZ', 'C3', 'C4']
+
+    protocol = df.get('Protocolo_X', pd.Series('A', index=df.index)).iloc[0] if 'Protocolo_X' in df.columns else 'A'
+    base_dir = os.path.dirname(__file__)
          
     if x_mode == 'psd_full_norm':
         # Load pre-stacked CSV data for the specific phase
-        protocol = df.get('Protocolo_X', pd.Series('A', index=df.index)).iloc[0] if 'Protocolo_X' in df.columns else 'A'
-        
-        base_dir = os.path.dirname(__file__)
         full_filepath = os.path.join(base_dir, 'data', f'prot{protocol}_X_psd_norm_completo_{fase}.csv')
         
         # Fallback for lowercase 'x'
@@ -135,29 +156,41 @@ def build_X(df, x_mode, fase='estimulacao', selected_channels=None):
             valid_cols = [c for c in full_df.columns if c.split('_')[0] in selected_channels]
             full_df = full_df[valid_cols]
             
-            if len(full_df) == len(df):
-                full_df.index = df.index
-                return full_df
-            elif len(full_df) > len(df):
-                # If df was dropped (e.g. dropna on grupo), align via inner join if possible, or naive slice
-                # Since user guaranteed trials match perfectly before cleaning:
-                full_df.index = df.index.parent if hasattr(df, "parent") else pd.RangeIndex(len(full_df))
-                full_df_clean = full_df.loc[df.index].copy()
-                return full_df_clean
-            else:
-                # Data is incomplete (e.g. Protocol C Stimulation has 108/144 trials).
-                # Assume the PSD rows correspond to the first N trials in the metadata.
-                full_df.index = df.index[:len(full_df)]
-                return full_df
+            return _align_psd_df(full_df, df)
                 
         except FileNotFoundError:
             raise FileNotFoundError(f"Missing {full_filepath}. Please ensure the file is present in the data folder.")
         except Exception as e:
             raise ValueError(f"Failed loading full PSD array: {str(e)}")
-    else:
-        raise ValueError(f"Unknown x_mode: {x_mode} - Note that v2 requires psd_full_norm mode.")
+
+    elif x_mode == 'psd_2em2_norm':
+        # Load 2-in-2 Hz binned PSD normalized data
+        filepath_2em2 = os.path.join(base_dir, 'data', f'prot{protocol}_X_psd_norm_2em2_{fase}.csv')
         
-    return X
+        # Fallback for lowercase 'x'
+        if not os.path.exists(filepath_2em2):
+             filepath_2em2 = os.path.join(base_dir, 'data', f'prot{protocol}_x_psd_norm_2em2_{fase}.csv')
+             
+        try:
+            full_df = pd.read_csv(filepath_2em2)
+            if 'Unnamed: 0' in full_df.columns:
+                full_df = full_df.drop(columns=['Unnamed: 0'])
+                
+            # Filter by selected channels
+            # Column format: "psd_norm_{freq_range}_{CHANNEL}" e.g. "psd_norm_0_2Hz_CZ"
+            # The channel name is the last segment after the last underscore
+            valid_cols = [c for c in full_df.columns if c.rsplit('_', 1)[-1] in selected_channels]
+            full_df = full_df[valid_cols]
+            
+            return _align_psd_df(full_df, df)
+                
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Missing {filepath_2em2}. Please ensure the file is present in the data folder.")
+        except Exception as e:
+            raise ValueError(f"Failed loading 2em2 PSD array: {str(e)}")
+
+    else:
+        raise ValueError(f"Unknown x_mode: {x_mode} - Supported modes: psd_full_norm, psd_2em2_norm.")
 
 
 def build_Y(df, y_cols_selected):

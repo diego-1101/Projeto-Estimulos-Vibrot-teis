@@ -897,7 +897,7 @@ for ind in df_especifico['psd_ProtA_CV_especifico_df'].index:
 #%% Preparando os dados para as análises multivariadas feitas no site do dashboard e através da PLS
 
 # Escolhendo se vamos fazer com a fases de Estimulção(protA e protB)/Exploracao(ProtC) ou Execução (protA, protB e protC) 
-fase = 1 # 1-> Estimulação/Exploracao, 2-> Execucao 
+fase = 2 # 1-> Estimulação/Exploracao, 2-> Execucao 
 
 # 1) Pegando os dados de desempenho
 df_protA = pd.read_csv('df_protA.csv')
@@ -1707,8 +1707,25 @@ def add_bandpowers_per_channel(
 
     return df
 
+'''
 nperseg = int(2**(np.ceil(np.log2(2*FS))))# 2048 (potencia de dois mais proxima de FS*2)
 noverlap= int(nperseg//2) # 1024 (nperseg//2)
+'''
+nperseg = int(2**(np.ceil(np.log2(4*FS))))# (potencia de dois mais proxima de FS*4)
+porcentagem_overlap = 8
+noverlap = int(nperseg*(porcentagem_overlap/100))
+
+# Criando as bandinhas consecutivas de 2 em 2 Hz sugeridas pelo Jean
+
+bandas_jean = {}
+
+for f_ini in range(0, 50, 2):
+
+    f_fim = f_ini + 2
+
+    bandas_jean[f"{f_ini}_{f_fim}Hz"] = (f_ini, f_fim)
+
+
 
 channels_list= ['FP1', 'FP2', 'FZ', 'F3', 'F4', 'F7', 'F8', 'CZ', 'C3', 'C4', 'T7', 'T8', 'P7', 
                 'P8', 'PZ', 'P3', 'P4', 'O1', 'O2', 'FCZ', 'FC1', 'FC2', 'FC3', 'OZ', 'C2', 'CP1', 
@@ -1721,10 +1738,10 @@ df_C_final = add_psd_column(df_C_final, fs=1000, window="hann", channels=channel
 df_baseline = add_psd_column(df_baseline, fs=1000, window="hann", channels=channels_list,nperseg = nperseg, noverlap=noverlap)
 
 # Fazendo o cálculo da potência total e por bandas para cada canal
-df_A_final = add_bandpowers_per_channel(df_A_final,channels=channels_list)
-df_B_final = add_bandpowers_per_channel(df_B_final,channels=channels_list)
-df_C_final = add_bandpowers_per_channel(df_C_final,channels=channels_list)
-df_baseline = add_bandpowers_per_channel(df_baseline,channels=channels_list)
+df_A_final = add_bandpowers_per_channel(df_A_final,channels=channels_list,bands=bandas_jean)
+df_B_final = add_bandpowers_per_channel(df_B_final,channels=channels_list,bands=bandas_jean)
+df_C_final = add_bandpowers_per_channel(df_C_final,channels=channels_list,bands=bandas_jean)
+df_baseline = add_bandpowers_per_channel(df_baseline,channels=channels_list,bands=bandas_jean)
 
 #%% Normalizando pela baseline
 if fase == 1:
@@ -2312,6 +2329,90 @@ df_csv = exportar_psd_normalizado_csv(
     caminho_csv=f'protC_X_psd_norm_completo_{fase_protocolo}.csv'   
 )
 
+#%% Exportando X composto pela potencia de cada banda de 0 a 50 tomada de 2 em 2
+
+def exportar_histograma_2hz_csv(df, protocolo, fase, incluir_meta=True):
+    """Filtra as colunas no formato 'psd_norm_{f_ini}_{f_fim}Hz_{canal}' de 0 a
+
+    50 Hz e as exporta em formato de matriz de características (Features) para o
+    CDA, mantendo as linhas (trials) idênticas.
+    """
+    df = df.copy()
+
+    # 1. Determina o tipo de fase do protocolo (estimulacao ou execucao)
+    tipo = "estimulacao" if fase == 1 else "execucao"
+
+    # 2. Define o nome do arquivo seguindo o padrão solicitado
+    nome_arquivo = f"prot{protocolo}_X_psd_norm_2em2_{tipo}.csv"
+
+    # 3. Rastreia as colunas do histograma via Regex para o canal/frequência
+    # Captura tanto formatos com zero à esquerda (ex: 02_04Hz) quanto normais (ex: 2_4Hz)
+    padrao_regex = re.compile(r"^psd_norm_(\d+)_(\d+)Hz_(.+)$")
+
+    colunas_info = []
+    for col in df.columns:
+        match = padrao_regex.match(col)
+        if match:
+            f_ini = int(match.group(1))
+            f_fim = int(match.group(2))
+            canal = match.group(3)
+
+            # Filtra apenas o limite proposto pelo Jean (de 0 até 50 Hz)
+            if f_ini < 50:
+                colunas_info.append((f_ini, canal, col))
+
+    # 4. Ordena as colunas de forma lógica (frequência inicial crescente e canal)
+    # Garante que fique: 0_2Hz_FP1, 0_2Hz_FP2... 2_4Hz_FP1...
+    colunas_info.sort(key=lambda x: (x[0], x[1]))
+    colunas_histograma = [item[2] for item in colunas_info]
+
+    if not colunas_histograma:
+        print(
+            f"⚠️ Nenhuma coluna de 2 Hz encontrada para o protocolo {protocolo} na fase de {tipo}."
+        )
+        return None
+
+    # 5. Estrutura o DataFrame final de exportação
+    colunas_finais = []
+    if incluir_meta:
+        # Mantém metadados importantes para você identificar os trials se precisar
+        cols_meta_existentes = [
+            c for c in ["ID", "grupo", "Complexidade"] if c in df.columns
+        ]
+        colunas_finais.extend(cols_meta_existentes)
+
+    colunas_finais.extend(colunas_histograma)
+    df_exportar = df[colunas_finais]
+
+    # 6. Salva na pasta atual de execução (mesma pasta do código)
+    caminho_salvamento = os.path.join(os.getcwd(), nome_arquivo)
+    df_exportar.to_csv(caminho_salvamento, index=False)
+
+    print(
+        f"✅ Matriz exportada: {nome_arquivo} | Shape: {df_exportar.shape} ({df_exportar.shape[0]} trials)"
+    )
+    return df_exportar
+
+# --- EXPORTAÇÃO DOS HISTOGRAMAS DE 2 Hz PARA O CDA ---
+print("\n--- Iniciando exportação dos histogramas de 2 Hz (Plano Jean) ---")
+
+# Executa a exportação para o Protocolo A
+df_export_A = exportar_histograma_2hz_csv(
+    df=df_A_final,
+    protocolo="A",
+    fase=fase,
+    incluir_meta=False,  # Altere para False se quiser estritamente APENAS os sinais elétricos
+)
+
+# Executa a exportação para o Protocolo B
+df_export_B = exportar_histograma_2hz_csv(
+    df=df_B_final, protocolo="B", fase=fase, incluir_meta=False
+)
+
+# Executa a exportação para o Protocolo C
+df_export_C = exportar_histograma_2hz_csv(
+    df=df_C_final, protocolo="C", fase=fase, incluir_meta=False
+)
 #%% Salvando o Y e os filtros de cada protocolo
 if fase == 2:
     df_A_final[['ID','Complexidade','grupo','Overlap','Desempenho', 'Acuracia','Similaridade', 'Especificidade', 'Proporção espacial x', 'Proporção espacial y' ]].to_csv('analise_df_A_final.csv')
