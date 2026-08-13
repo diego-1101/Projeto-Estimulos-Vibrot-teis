@@ -125,7 +125,7 @@ def tukey_hsd_from_model(data, response_col, group_col, anova_table, alpha=0.05)
             
     return pd.DataFrame(resultados)
 
-def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None):
+def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None, ylim=None, distinguish=False, ordered_active=None, show_jitter=True):
     """
     Creates an interactive dot plot with means, 95% CI, and significance brackets.
     """
@@ -147,13 +147,13 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
 
     fig = go.Figure()
 
-    # Base Box/Strip plot for jitter points
+    # Base Box/Strip plot for jitter points (always add the skeleton trace to anchor the category axis, toggling points visibility)
     for lvl in order:
         lvl_data = data[data[x_col] == lvl]
         fig.add_trace(go.Box(
             y=lvl_data[y_col],
             name=str(lvl),
-            boxpoints='all',
+            boxpoints='all' if show_jitter else False,
             jitter=0.5,
             pointpos=0,
             fillcolor='rgba(255,255,255,0)',
@@ -163,18 +163,89 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
             hoverinfo='y'
         ))
 
-    # Means and CI95
-    fig.add_trace(go.Scatter(
-        x=g[x_col].astype(str),
-        y=g['mean'],
-        error_y=dict(type='data', array=g['ci95'], visible=True, color='blue', thickness=2, width=6),
-        mode='markers',
-        marker=dict(color='blue', size=10, symbol='circle'),
-        name=f'Média ± IC{(1-alpha)*100:.0f}%',
-        hovertemplate='Grupo: %{x}<br>Média: %{y:.3f}<br>IC: ±%{error_y.array:.3f}<extra></extra>'
-    ))
+    # Define dynamic visual patterns for distinction
+    COLORS = {
+        'grupo': {'CV': '#0d6efd', 'SV': '#dc3545', 'CF': '#0d6efd', 'SF': '#dc3545'},
+        'Complexidade': {'4': '#9b59b6', '6': '#2ecc71', '8': '#e67e22', 4: '#9b59b6', 6: '#2ecc71', 8: '#e67e22'},
+        'Overlap': {'0.0': '#1abc9c', '0.25': '#bcbd22', '0.5': '#d62728', '1.0': '#9467bd', 0.0: '#1abc9c', 0.25: '#bcbd22', 0.5: '#d62728', 1.0: '#9467bd'}
+    }
+    
+    SYMBOLS = {
+        'grupo': {'CV': 'circle', 'SV': 'diamond', 'CF': 'circle', 'SF': 'diamond'},
+        'Complexidade': {'4': 'circle', '6': 'square', '8': 'triangle-up', 4: 'circle', 6: 'square', 8: 'triangle-up'},
+        'Overlap': {'0.0': 'circle', '0.25': 'square', '0.5': 'diamond', '1.0': 'cross', 0.0: 'circle', 0.25: 'square', 0.5: 'diamond', 1.0: 'cross'}
+    }
+
+    # Draw Means and CI95 (distinguished or default)
+    if distinguish and ordered_active and len(ordered_active) >= 1:
+        f1_name = ordered_active[0]
+        f2_name = ordered_active[1] if len(ordered_active) >= 2 else None
+        
+        # 1. Dummy legend traces for 1st factor (Color) - only for values actually present in the data!
+        f1_vals = sorted(df[f1_name].dropna().unique().tolist())
+        for val1 in f1_vals:
+            str_val = str(val1).replace('.0', '')
+            color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str_val, 'blue'))
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode='markers',
+                marker=dict(color=color, size=10, symbol='circle'),
+                name=f"{f1_name}: {str_val}",
+                showlegend=True
+            ))
+            
+        # 2. Dummy legend traces for 2nd factor (Shape) - only for values actually present!
+        if f2_name:
+            f2_vals = sorted(df[f2_name].dropna().unique().tolist())
+            for val2 in f2_vals:
+                str_val = str(val2).replace('.0', '')
+                symbol = SYMBOLS.get(f2_name, {}).get(val2, SYMBOLS.get(f2_name, {}).get(str_val, 'circle'))
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode='markers',
+                    marker=dict(color='gray', size=10, symbol=symbol),
+                    name=f"{f2_name}: {str_val}",
+                    showlegend=True
+                ))
+                
+        # 3. Plot data points as individual traces with showlegend=False
+        for _, row in g.iterrows():
+            cat = str(row[x_col])
+            parts = cat.split('_')
+            
+            # Determine color from 1st factor
+            val1 = parts[0] if len(parts) >= 1 else ''
+            color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str(val1), 'blue'))
+            
+            # Determine symbol from 2nd factor
+            val2 = parts[1] if len(parts) >= 2 else ''
+            symbol = 'circle'
+            if f2_name:
+                symbol = SYMBOLS.get(f2_name, {}).get(val2, SYMBOLS.get(f2_name, {}).get(str(val2), 'circle'))
+                
+            fig.add_trace(go.Scatter(
+                x=[cat],
+                y=[row['mean']],
+                error_y=dict(type='data', array=[row['ci95']], visible=True, color=color, thickness=2, width=6),
+                mode='markers',
+                marker=dict(color=color, size=10, symbol=symbol),
+                showlegend=False,
+                hovertemplate=f'Grupo: {cat}<br>Média: %{{y:.3f}}<br>IC: ±%{{error_y.array:.3f}}<extra></extra>'
+            ))
+    else:
+        # Default behavior: single blue trace
+        fig.add_trace(go.Scatter(
+            x=g[x_col].astype(str),
+            y=g['mean'],
+            error_y=dict(type='data', array=g['ci95'], visible=True, color='blue', thickness=2, width=6),
+            mode='markers',
+            marker=dict(color='blue', size=10, symbol='circle'),
+            name=f'Média ± IC{(1-alpha)*100:.0f}%',
+            hovertemplate='Grupo: %{x}<br>Média: %{y:.3f}<br>IC: ±%{error_y.array:.3f}<extra></extra>'
+        ))
 
     sig_results = []
+    levels = []
     if show_sig_bars and len(order) >= 2:
         try:
             if anova_table is not None:
@@ -198,16 +269,11 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                         sig_pairs.append((str(row['group1']), str(row['group2']), stars, p_val))
                         sig_results.append({'group1': row['group1'], 'group2': row['group2'], 'p-adj': p_val, 'stars': stars})
 
-            # Draw brackets
+            # Draw brackets using paper coordinates to avoid altering the y-axis data range
             if sig_pairs:
-                y_max = data[y_col].max()
-                y_range = y_max - data[y_col].min()
-                if y_range == 0: y_range = 1.0
+                step_paper = 0.04
+                cap_paper = 0.012
                 
-                step = y_range * 0.08
-                cap = y_range * 0.02
-                
-                levels = []
                 x_pos = {str(lvl): i for i, lvl in enumerate(order)}
                 
                 for g1, g2, stars, _ in sig_pairs:
@@ -230,33 +296,47 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                         levels.append([])
                     
                     levels[my_level].append((i1, i2))
-                    y0 = y_max + step * (my_level + 1)
+                    y0 = 1.02 + step_paper * my_level
                     
                     fig.add_shape(type="path",
-                        path=f"M {i1} {y0-cap} L {i1} {y0} L {i2} {y0} L {i2} {y0-cap}",
+                        path=f"M {i1} {y0-cap_paper} L {i1} {y0} L {i2} {y0} L {i2} {y0-cap_paper}",
                         line=dict(color="black", width=1.5),
-                        xref="x", yref="y"
+                        xref="x", yref="paper"
                     )
                     
                     fig.add_annotation(
                         x=(i1+i2)/2,
-                        y=y0 + (step * 0.2),
+                        y=y0 + 0.012,
                         text=stars,
                         showarrow=False,
                         font=dict(size=14, color="black"),
-                        xref="x", yref="y"
+                        xref="x", yref="paper"
                     )
         except Exception as e:
             print(f"Tukey Error: {e}")
 
+    # Set dynamic margins and figure height to keep the plot area height constant at 400px
+    num_levels = len(levels) if ('levels' in locals() and levels) else 0
+    top_margin = max(80, int(60 + num_levels * 16))
+    fig_height = 400 + top_margin + 40
+
+    if ylim and isinstance(ylim, (list, tuple)) and len(ylim) == 2:
+        fig.update_yaxes(range=ylim)
+
     fig.update_layout(
-        title=title if title else f"Dotplot + IC{(1-alpha)*100:.0f}%",
+        title=dict(
+            text=title if title else f"Dotplot + IC{(1-alpha)*100:.0f}%",
+            y=0.98,
+            x=0.5,
+            xanchor='center',
+            yanchor='top'
+        ),
         xaxis_title=x_col,
         yaxis_title=y_col,
         template='plotly_white',
-        margin=dict(t=60, b=40, l=40, r=40)
+        margin=dict(t=top_margin, b=40, l=40, r=40),
+        height=fig_height
     )
-    
     return fig, sig_results, None
 
 def plot_interactive_interaction(df, x_col, line_col, y_col, facet_col=None, ylim=None, title=None, alpha=0.05):

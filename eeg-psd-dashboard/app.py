@@ -516,134 +516,8 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         return error_fig, html.Div(f"Error: {str(e)}"), go.Figure(), "", ""
 
 
-def get_performance_layout():
-    return html.Div([
-        html.Div([
-            html.H2("EEG PSD Dashboard", className="text-primary mb-4"),
-            html.H5("v2 Performance Evaluation", className="text-muted mb-4"),
-            html.Hr(),
-            
-            html.Label("Protocol", className="control-label"),
-            dcc.Dropdown(
-                id='perf-protocol-dropdown',
-                options=[
-                    {'label': 'Protocol A', 'value': 'A'},
-                    {'label': 'Protocol B', 'value': 'B'},
-                    {'label': 'Protocol C', 'value': 'C'}
-                ],
-                value='A',
-                className="mb-3 dash-dropdown"
-            ),
-            
-            
-            
-            html.Hr(),
-            
-            dcc.Checklist(
-                id='perf-normality-check',
-                options=[{'label': ' Testar Normalidade', 'value': 'yes'}],
-                value=[],
-                className="mb-2"
-            ),
-            html.Div(id='perf-normality-controls', style={'display': 'none'}, children=[
-                html.Label("Variável de Teste", className="control-label"),
-                dcc.Dropdown(id='perf-normality-var', options=Y_VARIABLES, value='Desempenho', className="mb-2 dash-dropdown"),
-                html.Div(id='perf-normality-group-container', children=[
-                    html.Label("Grupo", className="control-label"),
-                    dcc.Dropdown(id='perf-normality-group', options=[{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}, {'label': 'Ambos', 'value': 'Ambos'}], value='Ambos', className="mb-2 dash-dropdown")
-                ])
-            ]),
-            
-            html.Hr(),
-            
-            dcc.Checklist(
-                id='perf-anova-check',
-                options=[{'label': ' Executar ANOVA Typ=3 & Post-Hoc', 'value': 'yes'}],
-                value=[],
-                className="mb-2"
-            ),
-            html.Div(id='perf-anova-controls', style={'display': 'none'}, children=[
-                html.Label("Variável Dependente (Y)", className="control-label"),
-                dcc.Dropdown(id='perf-anova-target', options=Y_VARIABLES, value='Desempenho', className="mb-2 dash-dropdown"),
-                html.Label("Variáveis Independentes (X)", className="control-label"),
-                dcc.Checklist(id='perf-anova-independents', options=[
-                    {'label': 'Complexidade', 'value': 'Complexidade'},
-                    {'label': 'Grupo', 'value': 'grupo'},
-                    {'label': 'Overlap', 'value': 'Overlap'}
-                ], value=['Complexidade'], className="mb-2 list-style-none", labelStyle={'display': 'block', 'marginBottom': '5px'}),
-                dcc.Checklist(id='perf-heatmap-check', options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}], value=[], className="mt-2 mb-2")
-            ]),
-            
-            html.Hr(),
-            
-            html.Div(id='perf-alpha-container', style={'display': 'none'}, children=[
-                html.Label("Nível de Significância (Alpha)", className="control-label"),
-                dcc.Input(id='perf-alpha-input', type='number', value=0.05, min=0.001, max=0.1, step=0.01, className="form-control mb-3")
-            ]),
+# A primeira definicao de get_performance_layout era duplicada e foi removida.
 
-            dcc.Checklist(
-                id='perf-interaction-check',
-                options=[{'label': ' Plotar Interaction Plot', 'value': 'yes'}],
-                value=[],
-                className="mb-2"
-            ),
-            dcc.Checklist(
-                id='perf-hybrid-check',
-                options=[{'label': ' Plotar Gráfico Híbrido (Dispersão + Interação)', 'value': 'yes'}],
-                value=[],
-                className="mb-2"
-            ),
-            html.Div(id='perf-interaction-controls', style={'display': 'none'}, children=[
-                html.Label("Eixo X", className="control-label"),
-                dcc.Dropdown(id='perf-interaction-x', options=[], className="mb-2 dash-dropdown"),
-                html.Label("Eixo Y", className="control-label"),
-                dcc.Dropdown(id='perf-interaction-y', options=Y_VARIABLES, value='Desempenho', className="mb-2 dash-dropdown"),
-                html.Label("Linha", className="control-label"),
-                dcc.Dropdown(id='perf-interaction-line', options=[], className="mb-2 dash-dropdown"),
-                html.Label("Facet", className="control-label"),
-                dcc.Dropdown(id='perf-interaction-facet', options=[{'label': 'None', 'value': 'None'}], value='None', className="mb-2 dash-dropdown"),
-                html.Label("Escala Y (ex: 0.2, 1.0)", className="control-label"),
-                dcc.Input(id='perf-interaction-ylim', type='text', value='(0.2, 1.0)', className="form-control mb-2")
-            ]),
-            
-            html.Hr(),
-            html.Button("Executar Análise", id='perf-run-btn', className="btn btn-primary w-100 mt-2"),
-            html.Div(id='perf-controls-error', className="text-danger mt-2")
-        ], className="sidebar"),
-        
-        html.Div([
-            html.Div(id='perf-normality-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("Teste de Normalidade", className="text-info"),
-                html.Div(id='perf-normality-output')
-            ]),
-            
-            html.Div(id='perf-anova-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("ANOVA e Post-Hoc", className="text-warning"),
-                html.Div(id='perf-anova-table-output', style={'overflowX': 'auto'}),
-                dcc.Graph(id='perf-anova-dotplot', style={'height': '600px', 'marginTop': '15px'}),
-                html.Div(id='perf-anova-heatmap-container', style={'display': 'none'}, children=[
-                    html.H5("Heatmap de Significância (Tukey HSD)", className="text-primary mt-3"),
-                    dcc.Graph(id='perf-anova-heatmap', style={'height': '500px', 'marginTop': '10px'})
-                ]),
-                html.Details([
-                    html.Summary("Tabela de Resultados Post-Hoc (Significativos)", style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#0d6efd', 'marginTop': '15px'}),
-                    html.Div(id='perf-anova-posthoc-output', className="mt-2 bg-light p-2 rounded", style={'overflowX': 'auto'})
-                ])
-            ]),
-            
-            html.Div(id='perf-interaction-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("Interaction Plot", className="text-success"),
-                dcc.Graph(id='perf-interaction-plot', style={'height': '500px'})
-            ]),
-
-            html.Div(id='perf-hybrid-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("Gráfico Híbrido (Dispersão + Interação)", className="text-primary"),
-                dcc.Graph(id='perf-hybrid-plot', style={'height': '550px'})
-            ])
-
-            
-        ], className="main-content")
-    ])
 
 # --- Layout ---
 
@@ -842,7 +716,7 @@ def get_psd_layout():
             dcc.Checklist(
                 id='psd-overlay-toggle',
                 options=[{'label': ' Overlap Condition (Mean Only)', 'value': 'yes'}],
-                value=[],
+                value=['yes'],
                 className="mb-4 text-muted",
                 style={'fontSize': '0.9em'}
             ),
@@ -1139,7 +1013,55 @@ def get_performance_layout():
                     {'label': 'Grupo', 'value': 'grupo'},
                     {'label': 'Overlap', 'value': 'Overlap'}
                 ], value=['Complexidade'], className="mb-2 list-style-none", labelStyle={'display': 'block', 'marginBottom': '5px'}),
-                dcc.Checklist(id='perf-heatmap-check', options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}], value=[], className="mt-2 mb-2")
+                html.Div(id='perf-ylim-container', children=[
+                    html.Label("Limites do Eixo Y (Mín, Máx)", className="control-label"),
+                    html.Div([
+                        dcc.Input(id='perf-ylim-min', type='number', placeholder='Mín', className="form-control me-2", style={'width': '48%', 'display': 'inline-block'}),
+                        dcc.Input(id='perf-ylim-max', type='number', placeholder='Máx', className="form-control", style={'width': '48%', 'display': 'inline-block'})
+                    ], className="mb-2", style={'display': 'flex', 'justifyContent': 'space-between'})
+                ]),
+
+                html.Div(id='perf-x-order-container', style={'display': 'none'}, children=[
+                    html.Label("Ordem do Eixo X (ANOVA Dotplot)", className="control-label mt-2"),
+                    html.Div([
+                        html.Div([
+                            html.Label("1º Fator", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
+                            dcc.Dropdown(id='perf-x-order-1', options=[], className="mb-1 dash-dropdown")
+                        ]),
+                        html.Div(id='perf-x-order-2-container', children=[
+                            html.Label("2º Fator", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
+                            dcc.Dropdown(id='perf-x-order-2', options=[], className="mb-1 dash-dropdown")
+                        ]),
+                        html.Div(id='perf-x-order-3-container', children=[
+                            html.Label("3º Fator", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
+                            dcc.Dropdown(id='perf-x-order-3', options=[], className="mb-1 dash-dropdown")
+                        ])
+                    ], className="p-2 border rounded bg-light")
+                ]),
+                
+                dcc.Checklist(
+                    id='perf-anova-distinguish-check',
+                    options=[{'label': ' Distinguir médias por Cor/Símbolo', 'value': 'yes'}],
+                    value=[],
+                    className="mt-2 mb-2 text-muted",
+                    style={'fontSize': '0.9em'}
+                ),
+                
+                dcc.Checklist(
+                    id='perf-anova-jitter-check',
+                    options=[{'label': ' Exibir pontos de dispersão', 'value': 'yes'}],
+                    value=['yes'],
+                    className="mb-2 text-muted",
+                    style={'fontSize': '0.9em'}
+                ),
+                
+                dcc.Checklist(
+                    id='perf-heatmap-check',
+                    options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}],
+                    value=[],
+                    className="mb-2 text-muted",
+                    style={'fontSize': '0.9em'}
+                )
             ]),
             
             html.Hr(),
@@ -1148,7 +1070,7 @@ def get_performance_layout():
                 html.Label("Nível de Significância (Alpha)", className="control-label"),
                 dcc.Input(id='perf-alpha-input', type='number', value=0.05, min=0.001, max=0.1, step=0.01, className="form-control mb-3")
             ]),
-
+ 
             html.Div(id='perf-interaction-check-container', children=[
                 dcc.Checklist(
                     id='perf-interaction-check',
@@ -1171,9 +1093,7 @@ def get_performance_layout():
                 html.Label("Linha", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-line', options=[], className="mb-2 dash-dropdown"),
                 html.Label("Facet", className="control-label"),
-                dcc.Dropdown(id='perf-interaction-facet', options=[{'label': 'None', 'value': 'None'}], value='None', className="mb-2 dash-dropdown"),
-                html.Label("Escala Y (ex: 0.2, 1.0)", className="control-label"),
-                dcc.Input(id='perf-interaction-ylim', type='text', value='(0.2, 1.0)', className="form-control mb-2")
+                dcc.Dropdown(id='perf-interaction-facet', options=[{'label': 'None', 'value': 'None'}], value='None', className="mb-2 dash-dropdown")
             ]),
             
             html.Hr(),
@@ -1190,7 +1110,7 @@ def get_performance_layout():
             html.Div(id='perf-anova-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
                 html.H4("ANOVA e Post-Hoc", className="text-warning"),
                 html.Div(id='perf-anova-table-output', style={'overflowX': 'auto'}),
-                dcc.Graph(id='perf-anova-dotplot', style={'height': '600px', 'marginTop': '15px'}),
+                dcc.Graph(id='perf-anova-dotplot', style={'minHeight': '500px', 'marginTop': '15px'}),
                 html.Div(id='perf-anova-heatmap-container', style={'display': 'none'}, children=[
                     html.H5("Heatmap de Significância (Tukey HSD)", className="text-primary mt-3"),
                     dcc.Graph(id='perf-anova-heatmap', style={'height': '500px', 'marginTop': '10px'})
@@ -2404,11 +2324,11 @@ def update_perf_options(prot):
      State('perf-interaction-check', 'value'), State('perf-hybrid-check', 'value'),
      State('perf-interaction-x', 'value'), State('perf-interaction-y', 'value'),
      State('perf-interaction-line', 'value'), State('perf-interaction-facet', 'value'),
-     State('perf-interaction-ylim', 'value')]
+     State('perf-ylim-min', 'value'), State('perf-ylim-max', 'value')]
 )
 def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                             anova_chk, anova_var, anova_indeps, alpha,
-                            inter_chk, hybrid_chk, inter_x, inter_y, inter_line, inter_facet, inter_ylim):
+                            inter_chk, hybrid_chk, inter_x, inter_y, inter_line, inter_facet, ylim_min, ylim_max):
     if not n_clicks: raise PreventUpdate
     try:
         import os, ast
@@ -2426,6 +2346,13 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
         inter_style, inter_fig = {'display': 'none'}, go.Figure()
         hybrid_style, hybrid_fig = {'display': 'none'}, go.Figure()
         
+        parsed_ylim = None
+        if ylim_min is not None and ylim_max is not None:
+            try:
+                parsed_ylim = (float(ylim_min), float(ylim_max))
+            except:
+                pass
+
         if 'yes' in (norm_chk or []):
             df_norm = df.copy()
             if prot in ['A', 'B'] and norm_group != 'Ambos': df_norm = df_norm[df_norm['grupo'] == norm_group]
@@ -2462,15 +2389,11 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                 ])
 
         if 'yes' in (inter_chk or []):
-            try: parsed_ylim = ast.literal_eval(inter_ylim) if inter_ylim else None
-            except: parsed_ylim = None
             facet = inter_facet if inter_facet and inter_facet != 'None' else None
             fig, err = plot_interactive_interaction(df, inter_x, inter_line, inter_y, facet, parsed_ylim, alpha=alpha)
             inter_style, inter_fig = {'display': 'block'}, fig
 
         if 'yes' in (hybrid_chk or []):
-            try: parsed_ylim = ast.literal_eval(inter_ylim) if inter_ylim else None
-            except: parsed_ylim = None
             facet = inter_facet if inter_facet and inter_facet != 'None' else None
             fig_h, err_h = plot_interactive_hybrid(df, inter_x, inter_line, inter_y, facet, parsed_ylim, alpha=alpha)
             hybrid_style, hybrid_fig = {'display': 'block'}, fig_h
@@ -2481,15 +2404,82 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Erro Crítico: {str(e)}"
 
 @app.callback(
+    [Output('perf-x-order-container', 'style'),
+     Output('perf-x-order-2-container', 'style'),
+     Output('perf-x-order-3-container', 'style'),
+     Output('perf-x-order-1', 'options'),
+     Output('perf-x-order-2', 'options'),
+     Output('perf-x-order-3', 'options'),
+     Output('perf-x-order-1', 'value'),
+     Output('perf-x-order-2', 'value'),
+     Output('perf-x-order-3', 'value')],
+    [Input('perf-protocol-dropdown', 'value'),
+     Input('perf-x-order-1', 'value'),
+     Input('perf-x-order-2', 'value'),
+     Input('perf-x-order-3', 'value')]
+)
+def update_x_order_options(protocol, val1, val2, val3):
+    ctx = dash.callback_context
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    # Define available factors per protocol
+    if protocol == 'A':
+        all_factors = ['Complexidade', 'grupo', 'Overlap']
+    elif protocol == 'B':
+        all_factors = ['Complexidade', 'grupo']
+    else:  # Protocol C
+        all_factors = []
+        
+    if not all_factors:
+        # Hide the whole container for Protocol C
+        return {'display': 'none'}, {'display': 'none'}, {'display': 'none'}, [], [], [], None, None, None
+
+    # Determine styles
+    container_style = {'display': 'block'}
+    style2 = {'display': 'block'} if len(all_factors) >= 2 else {'display': 'none'}
+    style3 = {'display': 'block'} if len(all_factors) >= 3 else {'display': 'none'}
+
+    # If the protocol was changed, reset to default order: 1º Complexidade, 2º grupo, 3º Overlap
+    if triggered_id == 'perf-protocol-dropdown' or not triggered_id:
+        if protocol == 'A':
+            val1, val2, val3 = 'Complexidade', 'grupo', 'Overlap'
+        elif protocol == 'B':
+            val1, val2, val3 = 'Complexidade', 'grupo', None
+        else:
+            val1, val2, val3 = None, None, None
+
+    # Calculate options dynamically to avoid duplicates
+    # For order-1: can be any of all_factors
+    opt1 = [{'label': f, 'value': f} for f in all_factors]
+    
+    # For order-2: all_factors minus val1
+    rem2 = [f for f in all_factors if f != val1]
+    opt2 = [{'label': f, 'value': f} for f in rem2]
+    if val2 not in rem2:
+        val2 = rem2[0] if rem2 else None
+        
+    # For order-3: all_factors minus val1 and val2
+    rem3 = [f for f in rem2 if f != val2]
+    opt3 = [{'label': f, 'value': f} for f in rem3]
+    if val3 not in rem3:
+        val3 = rem3[0] if rem3 else None
+
+    return container_style, style2, style3, opt1, opt2, opt3, val1, val2, val3
+
+
+@app.callback(
     [Output('perf-anova-dotplot', 'figure'),
      Output('perf-anova-heatmap', 'figure'),
      Output('perf-anova-heatmap-container', 'style'),
      Output('perf-anova-posthoc-output', 'children')],
     [Input('perf-anova-data-table', 'data'), Input('perf-anova-data-table', 'active_cell')],
     [State('perf-protocol-dropdown', 'value'), State('perf-anova-target', 'value'),
-     State('perf-alpha-input', 'value'), State('perf-heatmap-check', 'value')]
+     State('perf-alpha-input', 'value'), State('perf-heatmap-check', 'value'),
+     State('perf-ylim-min', 'value'), State('perf-ylim-max', 'value'),
+     State('perf-x-order-1', 'value'), State('perf-x-order-2', 'value'), State('perf-x-order-3', 'value'),
+     State('perf-anova-distinguish-check', 'value'), State('perf-anova-jitter-check', 'value')]
 )
-def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk):
+def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk, ylim_min, ylim_max, order1, order2, order3, distinguish_val, jitter_val):
     if not table_data: return go.Figure(), go.Figure(), {'display': 'none'}, "Execute a ANOVA primeiro."
     alpha = float(str(alpha).replace(',', '.')) if alpha else 0.05
     def get_p(r):
@@ -2510,9 +2500,35 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatma
     df = pd.read_csv(csv_path)
     if prot == 'C' and 'Fase' in df.columns:
         df = df[df['Fase'] == 'Fase Execucao'].copy()
-    gc = "_".join(factors); df[gc] = df[factors].astype(str).agg('_'.join, axis=1)
+
+    # Determine sorting and grouping order based on user selection
+    user_order = [order1, order2, order3]
+    user_order = [f for f in user_order if f]
     
-    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data)
+    # Filter to only include factors present in the current test, preserving priority
+    ordered_active = [f for f in user_order if f in factors]
+    ordered_active += [f for f in factors if f not in ordered_active]
+    
+    # Sort DataFrame by the active factors in priority order
+    df_sorted = df.sort_values(by=ordered_active)
+    
+    # Combine variables using selected order
+    gc = "_".join(ordered_active)
+    df[gc] = df[ordered_active].astype(str).agg('_'.join, axis=1)
+    
+    # Extract unique categories in the sorted order
+    order = df_sorted[ordered_active].drop_duplicates().astype(str).agg('_'.join, axis=1).tolist()
+    
+    ylim = None
+    if ylim_min is not None and ylim_max is not None:
+        try:
+            ylim = (float(ylim_min), float(ylim_max))
+        except:
+            pass
+
+    distinguish = 'yes' in (distinguish_val or [])
+    show_jitter = 'yes' in (jitter_val or [])
+    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter)
     
     fig_hm = go.Figure()
     hm_style = {'display': 'none'}
