@@ -94,7 +94,7 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, scale='li
                     f_min, f_max = b_info['range']
                     fig.add_vrect(
                         x0=f_min, x1=f_max,
-                        fillcolor=b_info['color'], opacity=0.5,
+                        fillcolor=b_info['color'], opacity=0.8,
                         layer="below", line_width=0,
                         row=row_idx, col=col_idx
                     )
@@ -165,7 +165,7 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, scale='li
                         f_min, f_max = b_info['range']
                         fig.add_vrect(
                             x0=f_min, x1=f_max,
-                            fillcolor=b_info['color'], opacity=0.5,
+                            fillcolor=b_info['color'], opacity=0.8,
                             layer="below", line_width=0,
                             row=row_idx, col=col_idx
                         )

@@ -331,3 +331,88 @@ def get_channel_reference_base64():
     plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, band_limits=None):
+    loaded_dfs = []
+    t_cols = []
+    
+    for p in panels_data:
+        protocol = p['protocol']
+        fase = p['fase']
+        group = p['group']
+        scale_db = p['scale_db']
+        is_normalized = p['is_normalized']
+        is_baseline = p['is_baseline']
+        
+        fases_to_load = ['estimulacao', 'execucao'] if fase == 'Ambos' else [fase]
+        dfs_to_combine = []
+        for f in fases_to_load:
+            path = get_topoplot_path(protocol, f, is_normalized, is_baseline)
+            if path and os.path.exists(path):
+                dfs_to_combine.append(pd.read_csv(path))
+        
+        if not dfs_to_combine:
+            loaded_dfs.append(None)
+            t_cols.append(None)
+            continue
+            
+        t_col = 'psd_db_mean' if scale_db else 'psd_mean'
+        s_col = 'psd_db_std' if scale_db else 'psd_std'
+        df = combine_topoplot_data(dfs_to_combine, [protocol]*len(dfs_to_combine), [group]*len(dfs_to_combine), fases_to_load, t_col, s_col)
+        loaded_dfs.append(df)
+        t_cols.append(t_col)
+
+    if all(d is None for d in loaded_dfs):
+        return None, "Dados de topoplot não localizados para nenhum dos painéis."
+        
+    n_cols = len(panels_data)
+    n_rows = len(BANDS_ORDER)
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.5 * n_cols, 3.5 * n_rows), facecolor='none')
+    
+    if n_cols == 1:
+        axes = np.expand_dims(axes, axis=1)
+        
+    montage = mne.channels.make_standard_montage('standard_1020')
+    
+    for row_idx, band in enumerate(BANDS_ORDER):
+        for col_idx in range(n_cols):
+            ax = axes[row_idx, col_idx]
+            df = loaded_dfs[col_idx]
+            t_col = t_cols[col_idx]
+            
+            if df is None or df.empty:
+                ax.axis('off')
+                continue
+                
+            df_b = df[df['banda'] == band]
+            if df_b.empty:
+                ax.axis('off')
+                continue
+                
+            ch_names = [CH_MAPPING.get(c.upper(), c) for c in df_b['canal']]
+            data = df_b[t_col].values
+            info = mne.create_info(ch_names, sfreq=100, ch_types='eeg')
+            info.set_montage(montage)
+            
+            b_vmin, b_vmax = vmin, vmax
+            if band_limits and band in band_limits:
+                b_vmin, b_vmax = band_limits[band]
+                
+            im, _ = mne.viz.plot_topomap(data, info, axes=ax, show=False, contours=0, cmap='RdBu_r', vlim=(b_vmin, b_vmax))
+            
+            # Label columns on the first row
+            if row_idx == 0:
+                ax.set_title(f"Painel {col_idx + 1}", fontsize=12, pad=10, weight='bold')
+                
+            # Label rows on the left of the first column
+            if col_idx == 0:
+                ax.text(-0.25, 0.5, band.capitalize(), transform=ax.transAxes, 
+                        fontsize=12, weight='bold', va='center', ha='right')
+                        
+            fig.colorbar(im, ax=ax, orientation='horizontal', fraction=0.046, pad=0.15)
+            
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode('utf-8'), None

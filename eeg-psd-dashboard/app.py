@@ -16,13 +16,22 @@ from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
 from anova_engine import compute_anova_and_plot
 from psd_visualizer import create_psd_subplots
-from topoplot_engine import generate_topoplot_grid_base64, generate_topoplot_comparison_base64, get_channel_reference_base64, get_topoplot_bounds
+from topoplot_engine import (
+    generate_topoplot_grid_base64, 
+    generate_topoplot_comparison_base64, 
+    get_channel_reference_base64, 
+    get_topoplot_bounds,
+    generate_inverted_topoplot_grid_base64
+)
 import os
 
 # Load Quick Guide Content
 base_path = os.path.dirname(__file__)
 
-from performance_engine import run_normality_test, run_anova_typ3, plot_interactive_dot_sig, plot_interactive_interaction
+from performance_engine import (
+    run_normality_test, run_anova_typ3, plot_interactive_dot_sig, 
+    plot_interactive_interaction, plot_interactive_hybrid, plot_interactive_significance_heatmap
+)
 
 try:
     with open(os.path.join(base_path, 'QUICK_GUIDE.md'), 'r', encoding='utf-8') as f:
@@ -562,6 +571,7 @@ def get_performance_layout():
                     {'label': 'Grupo', 'value': 'grupo'},
                     {'label': 'Overlap', 'value': 'Overlap'}
                 ], value=['Complexidade'], className="mb-2 list-style-none", labelStyle={'display': 'block', 'marginBottom': '5px'}),
+                dcc.Checklist(id='perf-heatmap-check', options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}], value=[], className="mt-2 mb-2")
             ]),
             
             html.Hr(),
@@ -574,6 +584,12 @@ def get_performance_layout():
             dcc.Checklist(
                 id='perf-interaction-check',
                 options=[{'label': ' Plotar Interaction Plot', 'value': 'yes'}],
+                value=[],
+                className="mb-2"
+            ),
+            dcc.Checklist(
+                id='perf-hybrid-check',
+                options=[{'label': ' Plotar Gráfico Híbrido (Dispersão + Interação)', 'value': 'yes'}],
                 value=[],
                 className="mb-2"
             ),
@@ -605,6 +621,10 @@ def get_performance_layout():
                 html.H4("ANOVA e Post-Hoc", className="text-warning"),
                 html.Div(id='perf-anova-table-output', style={'overflowX': 'auto'}),
                 dcc.Graph(id='perf-anova-dotplot', style={'height': '600px', 'marginTop': '15px'}),
+                html.Div(id='perf-anova-heatmap-container', style={'display': 'none'}, children=[
+                    html.H5("Heatmap de Significância (Tukey HSD)", className="text-primary mt-3"),
+                    dcc.Graph(id='perf-anova-heatmap', style={'height': '500px', 'marginTop': '10px'})
+                ]),
                 html.Details([
                     html.Summary("Tabela de Resultados Post-Hoc (Significativos)", style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#0d6efd', 'marginTop': '15px'}),
                     html.Div(id='perf-anova-posthoc-output', className="mt-2 bg-light p-2 rounded", style={'overflowX': 'auto'})
@@ -614,7 +634,13 @@ def get_performance_layout():
             html.Div(id='perf-interaction-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
                 html.H4("Interaction Plot", className="text-success"),
                 dcc.Graph(id='perf-interaction-plot', style={'height': '500px'})
+            ]),
+
+            html.Div(id='perf-hybrid-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
+                html.H4("Gráfico Híbrido (Dispersão + Interação)", className="text-primary"),
+                dcc.Graph(id='perf-hybrid-plot', style={'height': '550px'})
             ])
+
             
         ], className="main-content")
     ])
@@ -1022,6 +1048,15 @@ def get_topoplot_layout():
                 className="mb-3 dash-dropdown"
             ),
 
+            html.Div(id='topo-compare-mode-wrapper', style={'display': 'none'}, children=[
+                dcc.Checklist(
+                    id='topo-compare-mode-check',
+                    options=[{'label': ' Modo Comparação (inverter linhas por colunas)', 'value': 'yes'}],
+                    value=[],
+                    className="mb-3"
+                )
+            ]),
+
             html.Button("Run Topoplot", id='run-topo-btn', className="btn btn-primary w-100"),
             html.Hr(),
             
@@ -1042,8 +1077,9 @@ def get_topoplot_layout():
         html.Div([
             html.Div([
                 html.Div([
-                    html.Button("ℹ️ Quick Guide", id={'type': 'guide-btn', 'index': 'topo'}, className='btn btn-sm btn-outline-info')
-                ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500}),
+                    html.Button("ℹ️ Quick Guide", id={'type': 'guide-btn', 'index': 'topo'}, className='btn btn-sm btn-outline-info'),
+                    html.Div(id="topo-download-buttons-container", className="d-flex align-items-center gap-2", style={'display': 'inline-flex'})
+                ], style={'position': 'absolute', 'top': '10px', 'left': '15px', 'zIndex': 500, 'display': 'flex', 'alignItems': 'center', 'gap': '10px'}),
                 html.Div(id="topo-output-container", className="d-flex flex-column gap-3 w-100", style={'paddingTop': '40px'})
             ], className="card p-3 mb-3", style={'position': 'relative'})
         ], className="main-content")
@@ -1068,8 +1104,6 @@ def get_performance_layout():
                 value='A',
                 className="mb-3 dash-dropdown"
             ),
-            
-            
             
             html.Hr(),
             
@@ -1105,6 +1139,7 @@ def get_performance_layout():
                     {'label': 'Grupo', 'value': 'grupo'},
                     {'label': 'Overlap', 'value': 'Overlap'}
                 ], value=['Complexidade'], className="mb-2 list-style-none", labelStyle={'display': 'block', 'marginBottom': '5px'}),
+                dcc.Checklist(id='perf-heatmap-check', options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}], value=[], className="mt-2 mb-2")
             ]),
             
             html.Hr(),
@@ -1122,6 +1157,12 @@ def get_performance_layout():
                     className="mb-2"
                 ),
             ]),
+            dcc.Checklist(
+                id='perf-hybrid-check',
+                options=[{'label': ' Plotar Gráfico Híbrido (Dispersão + Interação)', 'value': 'yes'}],
+                value=[],
+                className="mb-2"
+            ),
             html.Div(id='perf-interaction-controls', style={'display': 'none'}, children=[
                 html.Label("Eixo X", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-x', options=[], className="mb-2 dash-dropdown"),
@@ -1150,6 +1191,10 @@ def get_performance_layout():
                 html.H4("ANOVA e Post-Hoc", className="text-warning"),
                 html.Div(id='perf-anova-table-output', style={'overflowX': 'auto'}),
                 dcc.Graph(id='perf-anova-dotplot', style={'height': '600px', 'marginTop': '15px'}),
+                html.Div(id='perf-anova-heatmap-container', style={'display': 'none'}, children=[
+                    html.H5("Heatmap de Significância (Tukey HSD)", className="text-primary mt-3"),
+                    dcc.Graph(id='perf-anova-heatmap', style={'height': '500px', 'marginTop': '10px'})
+                ]),
                 html.Details([
                     html.Summary("Tabela de Resultados Post-Hoc (Significativos)", style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#0d6efd', 'marginTop': '15px'}),
                     html.Div(id='perf-anova-posthoc-output', className="mt-2 bg-light p-2 rounded", style={'overflowX': 'auto'})
@@ -1159,10 +1204,16 @@ def get_performance_layout():
             html.Div(id='perf-interaction-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
                 html.H4("Interaction Plot", className="text-success"),
                 dcc.Graph(id='perf-interaction-plot', style={'height': '500px'})
+            ]),
+
+            html.Div(id='perf-hybrid-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
+                html.H4("Gráfico Híbrido (Dispersão + Interação)", className="text-primary"),
+                dcc.Graph(id='perf-hybrid-plot', style={'height': '550px'})
             ])
             
         ], className="main-content")
     ])
+
 
 # --- Layout ---
 app.layout = html.Div([
@@ -1258,10 +1309,18 @@ def toggle_quick_guide(btn_clicks, close_clicks, current_style):
 
     # Select content based on trigger
     if mode == 'topo':
-        content = topo_guide_content
+        try:
+            with open(os.path.join(base_path, 'TOPO_GUIDE.md'), 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            content = topo_guide_content
         title = "📖 Guia Rápido: Topoplots"
     else:
-        content = quick_guide_content
+        try:
+            with open(os.path.join(base_path, 'QUICK_GUIDE.md'), 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            content = quick_guide_content
         title = "📖 Guia Rápido e Metodológico"
 
     # Reconstruct the modal content with the correct markdown
@@ -1894,17 +1953,20 @@ def update_topo_scale_options(prots, plot_count, current_val):
 
 @app.callback(
     [Output('topo-controls-2-wrapper', 'style'),
-     Output('topo-controls-3-wrapper', 'style')],
+     Output('topo-controls-3-wrapper', 'style'),
+     Output('topo-compare-mode-wrapper', 'style')],
     Input('topo-plot-count-radio', 'value')
 )
 def toggle_topo_panels(count):
     style2 = {'display': 'block'} if count >= 2 else {'display': 'none'}
     style3 = {'display': 'block'} if count >= 3 else {'display': 'none'}
-    return style2, style3
+    style_compare = {'display': 'block'} if count >= 2 else {'display': 'none'}
+    return style2, style3, style_compare
 
 @app.callback(
     [Output('topo-output-container', 'children'),
-     Output('topo-info-panel', 'children')],
+     Output('topo-info-panel', 'children'),
+     Output('topo-download-buttons-container', 'children')],
     [Input('run-topo-btn', 'n_clicks')],
     [State({'type': 'topo-prot-dropdown', 'index': ALL}, 'value'),
      State({'type': 'topo-fase-dropdown', 'index': ALL}, 'value'),
@@ -1912,10 +1974,11 @@ def toggle_topo_panels(count):
      State({'type': 'topo-scale-radio', 'index': ALL}, 'value'),
      State({'type': 'topo-norm-check', 'index': ALL}, 'value'),
      State('topo-plot-count-radio', 'value'),
-     State('topo-scale-mode-dropdown', 'value')],
+     State('topo-scale-mode-dropdown', 'value'),
+     State('topo-compare-mode-check', 'value')],
     prevent_initial_call=True
 )
-def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, scale_mode):
+def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, scale_mode, compare_mode):
     if not n_clicks:
         from dash.exceptions import PreventUpdate
         raise PreventUpdate
@@ -1925,12 +1988,14 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         generate_topoplot_comparison_base64,
         generate_anova_map_base64,
         get_topoplot_bounds,
-        get_topoplot_path
+        get_topoplot_path,
+        generate_inverted_topoplot_grid_base64
     )
         
     
     outputs = []
     messages = []
+    download_buttons = []
     
     panels = plot_count if plot_count else 1
     
@@ -2023,52 +2088,126 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         common_vmin, common_vmax = vmin, vmax
 
     # --- Now Render ---
-    for i in range(panels):
-        prot = prots[i]
-        fase = fases[i]
-        group = groups[i]
-        scale_db = scales[i] == 'db'
-        is_norm = 'yes' in (norms[i] or [])
-        is_baseline = (prot == 'baseline_C')
-        real_prot = 'C' if is_baseline else prot
-        
-        # --- Segurança Extra: Forçar grupo/fase correto para o protocolo ---
-        if prot == 'A' and group not in ['CV', 'SV', 'Ambos']:
-            group = 'CV'
-        elif prot == 'B' and group not in ['CF', 'SF', 'Ambos']:
-            group = 'CF'
+    is_compare = ('yes' in (compare_mode or [])) and (panels >= 2)
+    
+    if is_compare:
+        panels_data = []
+        for i in range(panels):
+            prot = prots[i]
+            group = groups[i]
+            scale_db = scales[i] == 'db'
+            is_norm = 'yes' in (norms[i] or [])
+            is_baseline = (prot == 'baseline_C')
+            real_prot = 'C' if is_baseline else prot
             
-        print(f"[DEBUG TOPO] Panel {i+1} | Prot: {prot} | Fase: {fase} | Group: {group} | Scale: {scale_mode}")
+            if real_prot == 'A' and group not in ['CV', 'SV', 'Ambos']:
+                group = 'CV'
+            elif real_prot == 'B' and group not in ['CF', 'SF', 'Ambos']:
+                group = 'CF'
+                
+            panels_data.append({
+                'protocol': real_prot,
+                'fase': fases[i],
+                'group': group,
+                'scale_db': scale_db,
+                'is_normalized': is_norm,
+                'is_baseline': is_baseline
+            })
+            
+        print(f"[DEBUG TOPO] Inverted Comparison | Panels: {panels} | Scale: {scale_mode}")
         
-        img_b64, err = generate_topoplot_grid_base64(
-            protocol=real_prot, fase=fase, group=group, 
-            scale_db=scale_db, is_normalized=is_norm, is_baseline=is_baseline,
+        img_b64, err = generate_inverted_topoplot_grid_base64(
+            panels_data=panels_data,
             vmin=common_vmin, vmax=common_vmax, band_limits=band_limits
         )
         
-        title_norm = " Normalizado" if is_norm else ""
-        title_group = f" - Grupo {group}" if prot in ['A', 'B'] else ""
-        title_scale = "(dB)" if scale_db else "(Linear)"
-        
-        fase_str = "N/A"
-        if fase:
-            fase_str = fase.capitalize()
+        # Build panel description titles
+        title_norm_p1 = " Normalizado" if panels_data[0]['is_normalized'] else ""
+        panel_titles = []
+        for idx, p in enumerate(panels_data):
+            fase_str = p['fase'].capitalize() if p['fase'] else "N/A"
+            title_group = f" - Grupo {p['group']}" if p['protocol'] in ['A', 'B'] else ""
+            panel_titles.append(f"Painel {idx+1}: {p['protocol']}{title_norm_p1} ({fase_str}{title_group})")
             
-        panel_title = f"Protocolo {prot}{title_norm} | Fase: {fase_str}{title_group} {title_scale}"
+        compare_title = "Modo Comparação: " + " VS ".join(panel_titles)
         
         from dash import html
         if err:
             outputs.append(html.Div([
-                html.H4(panel_title, className="text-center"),
+                html.H4(compare_title, className="text-center"),
                 html.Div(f"Erro: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
             ], className="card p-3 shadow-sm"))
-            messages.append(f"Panel {i+1} Failed: {err}")
+            messages.append(f"Comparison Grid Failed: {err}")
         else:
             outputs.append(html.Div([
-                html.H4(panel_title, className="text-center text-primary"),
+                html.H4(compare_title, className="text-center text-primary mb-2"),
+                html.P("Comparação das faixas de frequência (linhas) lado a lado entre os painéis (colunas).", className="text-center text-muted small"),
                 html.Img(src=f"data:image/png;base64,{img_b64}", style={'width':'100%', 'height':'auto'})
             ], className="card p-3 shadow-sm"))
-            messages.append(f"Panel {i+1} Rendered Successfully.")
+            messages.append("Comparison Grid Rendered Successfully.")
+            
+            # Button next to Quick Guide
+            download_buttons.append(html.Div([
+                html.Button("📥 Salvar Comparação", id={'type': 'topo-download-btn', 'index': 'compare_grid'}, className="btn btn-sm btn-outline-primary"),
+                dcc.Store(id={'type': 'topo-img-store', 'index': 'compare_grid'}, data=img_b64),
+                dcc.Download(id={'type': 'topo-download-link', 'index': 'compare_grid'})
+            ]))
+            
+    else:
+        for i in range(panels):
+            prot = prots[i]
+            fase = fases[i]
+            group = groups[i]
+            scale_db = scales[i] == 'db'
+            is_norm = 'yes' in (norms[i] or [])
+            is_baseline = (prot == 'baseline_C')
+            real_prot = 'C' if is_baseline else prot
+            
+            # --- Segurança Extra: Forçar grupo/fase correto para o protocolo ---
+            if prot == 'A' and group not in ['CV', 'SV', 'Ambos']:
+                group = 'CV'
+            elif prot == 'B' and group not in ['CF', 'SF', 'Ambos']:
+                group = 'CF'
+                
+            print(f"[DEBUG TOPO] Panel {i+1} | Prot: {prot} | Fase: {fase} | Group: {group} | Scale: {scale_mode}")
+            
+            img_b64, err = generate_topoplot_grid_base64(
+                protocol=real_prot, fase=fase, group=group, 
+                scale_db=scale_db, is_normalized=is_norm, is_baseline=is_baseline,
+                vmin=common_vmin, vmax=common_vmax, band_limits=band_limits
+            )
+            
+            title_norm = " Normalizado" if is_norm else ""
+            title_group = f" - Grupo {group}" if prot in ['A', 'B'] else ""
+            title_scale = "(dB)" if scale_db else "(Linear)"
+            
+            fase_str = "N/A"
+            if fase:
+                fase_str = fase.capitalize()
+                
+            panel_title = f"Protocolo {prot}{title_norm} | Fase: {fase_str}{title_group} {title_scale}"
+            
+            from dash import html
+            if err:
+                outputs.append(html.Div([
+                    html.H4(panel_title, className="text-center"),
+                    html.Div(f"Erro: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
+                ], className="card p-3 shadow-sm"))
+                messages.append(f"Panel {i+1} Failed: {err}")
+            else:
+                outputs.append(html.Div([
+                    html.H4(panel_title, className="text-center text-primary mb-2"),
+                    html.Img(src=f"data:image/png;base64,{img_b64}", style={'width':'100%', 'height':'auto'})
+                ], className="card p-3 shadow-sm"))
+                messages.append(f"Panel {i+1} Rendered Successfully.")
+                
+                # Button next to Quick Guide
+                btn_label = f"📥 Salvar Painel {i+1}" if panels > 1 else "📥 Salvar Topoplot"
+                download_buttons.append(html.Div([
+                    html.Button(btn_label, id={'type': 'topo-download-btn', 'index': f"panel_{i+1}"}, className="btn btn-sm btn-outline-primary"),
+                    dcc.Store(id={'type': 'topo-img-store', 'index': f"panel_{i+1}"}, data=img_b64),
+                    dcc.Download(id={'type': 'topo-download-link', 'index': f"panel_{i+1}"})
+                ]))
             
     # --- Statistical Comparison Row ---
     if panels >= 2:
@@ -2098,7 +2237,7 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                     anova_details_children = [html.I("Nenhum canal sobreviveu à correção FDR (p < 0.05).")]
 
                 outputs.append(html.Div([
-                    html.H4("Análise Global (One-Way ANOVA)", className="text-center text-warning"),
+                    html.H4("Análise Global (One-Way ANOVA)", className="text-center text-warning mb-2"),
                     html.P("Mapa de probabilidade (1-p). Cores quentes e marcações com 'x' indicam variação significativa entre os 3 painéis (corrigido por FDR).", className="text-center text-muted small"),
                     html.Img(src=f"data:image/png;base64,{anova_img}", style={'width':'100%', 'height':'auto'}),
                     html.Details([
@@ -2108,6 +2247,13 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                     ], className="mt-2")
                 ], className="card p-3 shadow-sm border-warning", style={'borderWidth': '2px', 'marginTop': '20px'}))
                 messages.append("ANOVA Global Rendered.")
+                
+                # Button next to Quick Guide
+                download_buttons.append(html.Div([
+                    html.Button("📥 Salvar ANOVA", id={'type': 'topo-download-btn', 'index': 'anova_map'}, className="btn btn-sm btn-outline-warning"),
+                    dcc.Store(id={'type': 'topo-img-store', 'index': 'anova_map'}, data=anova_img),
+                    dcc.Download(id={'type': 'topo-download-link', 'index': 'anova_map'})
+                ]))
 
         # 2. Pairwise Comparisons
         comps = [(0, 1)]
@@ -2133,7 +2279,7 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                     details_children = [html.I(f"Nenhum canal significativo encontrado (p < 0.05).")]
 
                 outputs.append(html.Div([
-                    html.H4(f"Comparação: {label1} vs {label2}", className="text-center text-danger"),
+                    html.H4(f"Comparação: {label1} vs {label2}", className="text-center text-danger mb-2"),
                     html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
                     html.Details([
                         html.Summary(f"📊 Detalhes Estatísticos ({label1} vs {label2})", 
@@ -2142,8 +2288,45 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                     ], className="mt-2")
                 ], className="card p-3 shadow-sm border-danger", style={'borderWidth': '2px', 'marginTop': '20px'}))
                 messages.append(f"Comparison {label1} vs {label2} Rendered.")
+                
+                # Button next to Quick Guide
+                download_buttons.append(html.Div([
+                    html.Button(f"📥 Salvar Comp. {idx1+1} vs {idx2+1}", id={'type': 'topo-download-btn', 'index': f"comp_{idx1}_{idx2}"}, className="btn btn-sm btn-outline-danger"),
+                    dcc.Store(id={'type': 'topo-img-store', 'index': f"comp_{idx1}_{idx2}"}, data=img_comp),
+                    dcc.Download(id={'type': 'topo-download-link', 'index': f"comp_{idx1}_{idx2}"})
+                ]))
 
-    return outputs, " | ".join(messages)
+    return outputs, " | ".join(messages), download_buttons
+
+@app.callback(
+    Output({'type': 'topo-download-link', 'index': MATCH}, 'data'),
+    Input({'type': 'topo-download-btn', 'index': MATCH}, 'n_clicks'),
+    State({'type': 'topo-img-store', 'index': MATCH}, 'data'),
+    prevent_initial_call=True
+)
+def download_topo_image(n_clicks, img_base64):
+    if not n_clicks or not img_base64:
+        from dash.exceptions import PreventUpdate
+        raise PreventUpdate
+        
+    import base64
+    from dash import dcc
+    img_bytes = base64.b64decode(img_base64)
+    
+    # Determine which button triggered the callback
+    ctx = dash.callback_context
+    filename = "topoplot.png"
+    if ctx.triggered:
+        prop_id = ctx.triggered[0]['prop_id']
+        import json
+        try:
+            trigger_dict = json.loads(prop_id.split('.')[0])
+            idx = trigger_dict.get('index', 'topoplot')
+            filename = f"topoplot_{idx}.png"
+        except:
+            pass
+            
+    return dcc.send_bytes(img_bytes, filename=filename)
 
 
 # ==============================================================================
@@ -2157,12 +2340,13 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
      Output('perf-alpha-container', 'style')],
     [Input('perf-normality-check', 'value'),
      Input('perf-anova-check', 'value'),
-     Input('perf-interaction-check', 'value')]
+     Input('perf-interaction-check', 'value'),
+     Input('perf-hybrid-check', 'value')]
 )
-def toggle_performance_controls(norm_val, anova_val, inter_val):
+def toggle_performance_controls(norm_val, anova_val, inter_val, hybrid_val):
     norm_style = {'display': 'block'} if 'yes' in (norm_val or []) else {'display': 'none'}
     anova_style = {'display': 'block'} if 'yes' in (anova_val or []) else {'display': 'none'}
-    inter_style = {'display': 'block'} if 'yes' in (inter_val or []) else {'display': 'none'}
+    inter_style = {'display': 'block'} if ('yes' in (inter_val or []) or 'yes' in (hybrid_val or [])) else {'display': 'none'}
     alpha_style = {'display': 'block'} if ('yes' in (norm_val or []) or 'yes' in (anova_val or [])) else {'display': 'none'}
     return norm_style, anova_style, inter_style, alpha_style
 
@@ -2210,25 +2394,29 @@ def update_perf_options(prot):
     [Output('perf-normality-result-card', 'style'), Output('perf-normality-output', 'children'),
      Output('perf-anova-result-card', 'style'), Output('perf-anova-table-output', 'children'),
      Output('perf-interaction-result-card', 'style'), Output('perf-interaction-plot', 'figure'),
+     Output('perf-hybrid-result-card', 'style'), Output('perf-hybrid-plot', 'figure'),
      Output('perf-controls-error', 'children')],
     [Input('perf-run-btn', 'n_clicks')],
     [State('perf-protocol-dropdown', 'value'), State('perf-normality-check', 'value'),
      State('perf-normality-var', 'value'), State('perf-normality-group', 'value'),
      State('perf-anova-check', 'value'), State('perf-anova-target', 'value'),
      State('perf-anova-independents', 'value'), State('perf-alpha-input', 'value'),
-     State('perf-interaction-check', 'value'), State('perf-interaction-x', 'value'),
-     State('perf-interaction-y', 'value'), State('perf-interaction-line', 'value'),
-     State('perf-interaction-facet', 'value'), State('perf-interaction-ylim', 'value')]
+     State('perf-interaction-check', 'value'), State('perf-hybrid-check', 'value'),
+     State('perf-interaction-x', 'value'), State('perf-interaction-y', 'value'),
+     State('perf-interaction-line', 'value'), State('perf-interaction-facet', 'value'),
+     State('perf-interaction-ylim', 'value')]
 )
 def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                             anova_chk, anova_var, anova_indeps, alpha,
-                            inter_chk, inter_x, inter_y, inter_line, inter_facet, inter_ylim):
+                            inter_chk, hybrid_chk, inter_x, inter_y, inter_line, inter_facet, inter_ylim):
     if not n_clicks: raise PreventUpdate
     try:
         import os, ast
-        from performance_engine import run_normality_test, run_anova_typ3, plot_interactive_dot_sig, plot_interactive_interaction
+        from performance_engine import (run_normality_test, run_anova_typ3, plot_interactive_dot_sig,
+                                        plot_interactive_interaction, plot_interactive_hybrid)
         csv_path = os.path.join(os.path.dirname(__file__), 'data', f'df_prot{prot}_performance.csv')
-        if not os.path.exists(csv_path): return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Arquivo não encontrado: {csv_path}"
+        if not os.path.exists(csv_path):
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Arquivo não encontrado: {csv_path}"
         df = pd.read_csv(csv_path)
         if prot == 'C' and 'Fase' in df.columns:
             df = df[df['Fase'] == 'Fase Execucao'].copy()
@@ -2236,6 +2424,7 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
         norm_style, norm_out = {'display': 'none'}, ""
         anova_style, anova_tbl = {'display': 'none'}, ""
         inter_style, inter_fig = {'display': 'none'}, go.Figure()
+        hybrid_style, hybrid_fig = {'display': 'none'}, go.Figure()
         
         if 'yes' in (norm_chk or []):
             df_norm = df.copy()
@@ -2279,18 +2468,29 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
             fig, err = plot_interactive_interaction(df, inter_x, inter_line, inter_y, facet, parsed_ylim, alpha=alpha)
             inter_style, inter_fig = {'display': 'block'}, fig
 
-        return norm_style, norm_out, anova_style, anova_tbl, inter_style, inter_fig, ""
+        if 'yes' in (hybrid_chk or []):
+            try: parsed_ylim = ast.literal_eval(inter_ylim) if inter_ylim else None
+            except: parsed_ylim = None
+            facet = inter_facet if inter_facet and inter_facet != 'None' else None
+            fig_h, err_h = plot_interactive_hybrid(df, inter_x, inter_line, inter_y, facet, parsed_ylim, alpha=alpha)
+            hybrid_style, hybrid_fig = {'display': 'block'}, fig_h
+
+        return norm_style, norm_out, anova_style, anova_tbl, inter_style, inter_fig, hybrid_style, hybrid_fig, ""
     except Exception as e:
         import traceback; traceback.print_exc()
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Erro Crítico: {str(e)}"
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Erro Crítico: {str(e)}"
 
 @app.callback(
-    [Output('perf-anova-dotplot', 'figure'), Output('perf-anova-posthoc-output', 'children')],
+    [Output('perf-anova-dotplot', 'figure'),
+     Output('perf-anova-heatmap', 'figure'),
+     Output('perf-anova-heatmap-container', 'style'),
+     Output('perf-anova-posthoc-output', 'children')],
     [Input('perf-anova-data-table', 'data'), Input('perf-anova-data-table', 'active_cell')],
-    [State('perf-protocol-dropdown', 'value'), State('perf-anova-target', 'value'), State('perf-alpha-input', 'value')]
+    [State('perf-protocol-dropdown', 'value'), State('perf-anova-target', 'value'),
+     State('perf-alpha-input', 'value'), State('perf-heatmap-check', 'value')]
 )
-def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha):
-    if not table_data: return go.Figure(), "Execute a ANOVA primeiro."
+def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk):
+    if not table_data: return go.Figure(), go.Figure(), {'display': 'none'}, "Execute a ANOVA primeiro."
     alpha = float(str(alpha).replace(',', '.')) if alpha else 0.05
     def get_p(r):
         try:
@@ -2299,23 +2499,33 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha):
         except: return 1.0
         
     idx = active_cell['row'] if active_cell else next((i for i, r in enumerate(table_data) if r.get('Termo') not in ['Intercept', 'Residual'] and get_p(r) < alpha), next((i for i, r in enumerate(table_data) if r.get('Termo') not in ['Intercept', 'Residual']), None))
-    if idx is None: return go.Figure(), "Nenhum fator analisável encontrado."
+    if idx is None: return go.Figure(), go.Figure(), {'display': 'none'}, "Nenhum fator analisável encontrado."
     source_str = table_data[idx]['Termo']
     import re; clean = source_str.replace("Q('", "").replace("')", ""); factors = re.findall(r'C\((.*?)\)', clean)
     if not factors:
         factors = [f.strip() for f in clean.split(':') if f.strip() not in ['Intercept', 'Residual']]
-    if not factors: return go.Figure(), f"Não é possível fazer Post-Hoc para a linha selecionada: {source_str}."
-    import os, pandas as pd; from performance_engine import plot_interactive_dot_sig
+    if not factors: return go.Figure(), go.Figure(), {'display': 'none'}, f"Não é possível fazer Post-Hoc para a linha selecionada: {source_str}."
+    import os, pandas as pd; from performance_engine import plot_interactive_dot_sig, plot_interactive_significance_heatmap
     csv_path = os.path.join(os.path.dirname(__file__), 'data', f'df_prot{prot}_performance.csv')
     df = pd.read_csv(csv_path)
     if prot == 'C' and 'Fase' in df.columns:
         df = df[df['Fase'] == 'Fase Execucao'].copy()
     gc = "_".join(factors); df[gc] = df[factors].astype(str).agg('_'.join, axis=1)
-    fig, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data)
-    if err: return fig, html.Div(err, className="alert alert-warning")
-    if not sig: return fig, html.Div("Nenhuma diferença significativa encontrada.", className="alert alert-info")
+    
+    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data)
+    
+    fig_hm = go.Figure()
+    hm_style = {'display': 'none'}
+    if 'yes' in (heatmap_chk or []):
+        fig_hm, err_hm = plot_interactive_significance_heatmap(df, target_var, gc, anova_table=table_data, alpha=alpha)
+        if not err_hm:
+            hm_style = {'display': 'block'}
+            
+    if err: return fig_dot, fig_hm, hm_style, html.Div(err, className="alert alert-warning")
+    if not sig: return fig_dot, fig_hm, hm_style, html.Div("Nenhuma diferença significativa encontrada.", className="alert alert-info")
     from dash import dash_table; sdf = pd.DataFrame(sig)
-    return fig, dash_table.DataTable(data=sdf.to_dict('records'), columns=[{'name': i, 'id': i} for i in sdf.columns], style_cell={'textAlign': 'left', 'padding': '5px'}, style_header={'fontWeight': 'bold', 'backgroundColor': '#f8f9fa'})
+    return fig_dot, fig_hm, hm_style, dash_table.DataTable(data=sdf.to_dict('records'), columns=[{'name': i, 'id': i} for i in sdf.columns], style_cell={'textAlign': 'left', 'padding': '5px'}, style_header={'fontWeight': 'bold', 'backgroundColor': '#f8f9fa'})
+
 
 
 if __name__ == '__main__':

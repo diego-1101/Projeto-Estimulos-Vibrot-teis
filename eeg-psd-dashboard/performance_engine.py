@@ -36,7 +36,7 @@ def run_anova_typ3(df, target, independents):
     data = df.dropna(subset=[target] + independents).copy()
     
     rhs = " * ".join([f"C({var})" for var in independents])
-    formula = f"{target} ~ {rhs}"
+    formula = f"Q('{target}') ~ {rhs}"
     
     try:
         model = ols(formula, data=data).fit()
@@ -305,3 +305,268 @@ def plot_interactive_interaction(df, x_col, line_col, y_col, facet_col=None, yli
     fig.update_layout(template='plotly_white', margin=dict(t=60, b=40, l=40, r=40))
     
     return fig, None
+
+def plot_interactive_hybrid(df, x_col, line_col, y_col, facet_col=None, ylim=None, title=None, alpha=0.05):
+    """
+    Creates an interactive hybrid Plotly figure combining Boxplot + Stripplot (Dispersão)
+    with Interaction Lines (Means + IC95%) in foreground, perfectly aligned over boxplot centers.
+    """
+    group_cols = [x_col, line_col]
+    if facet_col and facet_col != 'None':
+        group_cols.append(facet_col)
+    else:
+        facet_col = None
+        
+    data = df[group_cols + [y_col]].dropna().copy()
+    if data.empty:
+        return go.Figure(), "Sem dados válidos para plotar."
+
+    # Standardize string representations
+    data[x_col] = data[x_col].astype(str)
+    data[line_col] = data[line_col].astype(str)
+    if facet_col:
+        data[facet_col] = data[facet_col].astype(str)
+        if 'overlap' in facet_col.lower():
+            def fmt_ov(val):
+                try:
+                    f = float(val)
+                    return f"Overlap {int(round(f * 100))}%"
+                except:
+                    return f"Overlap {val}"
+            data[facet_col] = data[facet_col].apply(fmt_ov)
+        facet_vals = sorted(data[facet_col].unique().tolist())
+    else:
+        facet_vals = [None]
+
+    line_vals = sorted(data[line_col].unique().tolist())
+    x_vals = sorted(data[x_col].unique().tolist())
+    num_x = len(x_vals)
+    K = len(line_vals)
+    
+    # Calculate exact horizontal offsets for grouped boxplots & lines
+    if K > 1:
+        box_width = 0.28
+        spacing = 0.36
+        offsets = [(-spacing/2) + idx * (spacing / (K - 1)) for idx in range(K)]
+    else:
+        box_width = 0.4
+        offsets = [0.0]
+        
+    PALETTE_GRUPO = {'CV': '#0d6efd', 'SV': '#dc3545', 'CF': '#0d6efd', 'SF': '#dc3545'}
+    COLOR_MAP = {}
+    for idx, l_val in enumerate(line_vals):
+        COLOR_MAP[l_val] = PALETTE_GRUPO.get(l_val, px.colors.qualitative.Set1[idx % len(px.colors.qualitative.Set1)])
+        
+    from plotly.subplots import make_subplots
+    
+    if len(facet_vals) > 1:
+        fig = make_subplots(
+            rows=1, cols=len(facet_vals),
+            subplot_titles=[str(fv) for fv in facet_vals],
+            shared_yaxes=True,
+            horizontal_spacing=0.04
+        )
+    else:
+        fig = go.Figure()
+
+    for f_idx, f_val in enumerate(facet_vals, start=1):
+        if f_val is not None:
+            sub_data = data[data[facet_col] == f_val].copy()
+        else:
+            sub_data = data.copy()
+
+        # 1. Background Boxplots & Scatter Points (Aligned at numeric x + offset)
+        for k_idx, l_val in enumerate(line_vals):
+            l_data = sub_data[sub_data[line_col] == l_val].copy()
+            if l_data.empty: continue
+            
+            color = COLOR_MAP[l_val]
+            offset = offsets[k_idx]
+            
+            # Map categorical x to numeric position + group offset
+            l_data['x_num'] = l_data[x_col].apply(lambda x: x_vals.index(x) + offset if x in x_vals else 0.0)
+            
+            box_trace = go.Box(
+                x=l_data['x_num'],
+                y=l_data[y_col],
+                name=f"{line_col}: {l_val}",
+                legendgroup=f"{l_val}",
+                showlegend=False,
+                boxpoints='all',
+                jitter=0.35,
+                pointpos=0,
+                width=box_width,
+                fillcolor=color,
+                opacity=0.3,
+                line=dict(color=color, width=1.5),
+                marker=dict(color=color, size=4, opacity=0.5),
+                hoverinfo='y+name'
+            )
+            if len(facet_vals) > 1:
+                fig.add_trace(box_trace, row=1, col=f_idx)
+            else:
+                fig.add_trace(box_trace)
+
+        # 2. Foreground Interaction Lines (Means + IC95%) centered EXACTLY over boxes
+        grouped = sub_data.groupby([x_col, line_col])[y_col].agg(['mean', 'std', 'count']).reset_index()
+        
+        def calc_ci95(s, n):
+            if n and n > 1 and pd.notnull(s):
+                return t_dist.ppf(1 - alpha/2, df=n-1) * (s / np.sqrt(n))
+            return 0.0
+        grouped['ci95'] = [calc_ci95(s, n) for s, n in zip(grouped['std'], grouped['count'])]
+        
+        for k_idx, l_val in enumerate(line_vals):
+            g_sub = grouped[grouped[line_col] == l_val].copy()
+            if g_sub.empty: continue
+            
+            offset = offsets[k_idx]
+            g_sub['x_order'] = g_sub[x_col].apply(lambda x: x_vals.index(x) if x in x_vals else 99)
+            g_sub = g_sub.sort_values('x_order')
+            g_sub['x_num'] = g_sub['x_order'] + offset
+            
+            color = COLOR_MAP[l_val]
+            
+            line_trace = go.Scatter(
+                x=g_sub['x_num'],
+                y=g_sub['mean'],
+                error_y=dict(type='data', array=g_sub['ci95'], visible=True, color=color, thickness=2, width=6),
+                mode='lines+markers',
+                marker=dict(size=9, symbol='circle', color='white', line=dict(color=color, width=2.5)),
+                line=dict(color=color, width=3),
+                name=f"{line_col}: {l_val}",
+                legendgroup=f"{l_val}",
+                showlegend=(f_idx == 1),
+                hovertemplate=f"Grupo: {l_val}<br>Complexidade: %{{text}}<br>Média: %{{y:.3f}}<br>IC95%: ±%{{error_y.array:.3f}}<extra></extra>",
+                text=g_sub[x_col]
+            )
+            if len(facet_vals) > 1:
+                fig.add_trace(line_trace, row=1, col=f_idx)
+            else:
+                fig.add_trace(line_trace)
+
+    fig.update_layout(
+        title=title if title else f"Gráfico Híbrido: {y_col} ~ {x_col} × {line_col}",
+        template='plotly_white',
+        margin=dict(t=60, b=40, l=50, r=40)
+    )
+    
+    # Configure custom ticks on X axis to show categorical labels at 0, 1, 2...
+    tick_vals = list(range(num_x))
+    tick_text = [str(x) for x in x_vals]
+    
+    if len(facet_vals) == 1:
+        fig.update_xaxes(title_text=x_col, tickvals=tick_vals, ticktext=tick_text)
+        fig.update_yaxes(title_text=y_col)
+    else:
+        fig.update_yaxes(title_text=y_col, col=1)
+        for c in range(1, len(facet_vals) + 1):
+            fig.update_xaxes(title_text=x_col, tickvals=tick_vals, ticktext=tick_text, col=c)
+            
+    if ylim and isinstance(ylim, (list, tuple)) and len(ylim) == 2:
+        fig.update_yaxes(range=ylim)
+
+    return fig, None
+
+def plot_interactive_significance_heatmap(data, response_col, group_col, anova_table=None, alpha=0.05):
+    """
+    Creates an interactive Plotly heatmap matrix of Tukey HSD post-hoc p-values
+    using a single-color sequential scale (Blues) and crisp contrasting text.
+    """
+    res_df = tukey_hsd_from_model(data, response_col, group_col, anova_table, alpha=alpha)
+    if res_df is None or res_df.empty:
+        return go.Figure(), "Sem resultados de Post-Hoc disponíveis para montar o Heatmap."
+        
+    grupos = sorted(list(set(res_df['group1'].astype(str)).union(set(res_df['group2'].astype(str)))))
+    k = len(grupos)
+    
+    p_matrix = np.ones((k, k))
+    text_matrix = np.full((k, k), "", dtype=object)
+    hover_text_matrix = np.full((k, k), "", dtype=object)
+    
+    g_to_idx = {g: i for i, g in enumerate(grupos)}
+    
+    only_stars = (k > 10)
+    
+    for _, row in res_df.iterrows():
+        g1, g2 = str(row['group1']), str(row['group2'])
+        p_val = float(row['p-adj'])
+        stars = str(row.get('stars', 'ns'))
+        if g1 in g_to_idx and g2 in g_to_idx:
+            i, j = g_to_idx[g1], g_to_idx[g2]
+            p_matrix[i, j] = p_val
+            p_matrix[j, i] = p_val
+            
+            # Hover text: always full detail
+            hover_label = f"p = {p_val:.4f} ({stars})" if p_val < 0.001 else f"p = {p_val:.3f} ({stars})"
+            hover_text_matrix[i, j] = hover_label
+            hover_text_matrix[j, i] = hover_label
+            
+            # Cell text: stars if large k, full label if small k
+            if only_stars:
+                cell_label = stars
+            else:
+                cell_label = f"p = {p_val:.4f}<br>({stars})" if p_val < 0.001 else f"p = {p_val:.3f}<br>({stars})"
+            text_matrix[i, j] = cell_label
+            text_matrix[j, i] = cell_label
+            
+    for i in range(k):
+        text_matrix[i, i] = "—"
+        hover_text_matrix[i, i] = "Diagonal"
+        p_matrix[i, i] = 1.0
+        
+    for i in range(k):
+        for j in range(k):
+            if i != j and not text_matrix[i, j]:
+                text_matrix[i, j] = "ns" if only_stars else "p = 1.000<br>(ns)"
+                hover_text_matrix[i, j] = "p = 1.000 (ns)"
+
+    # Scale: 0 for diagonal/ns, higher values for significant differences
+    log_p = -np.log10(np.clip(p_matrix, 1e-4, 1.0))
+    np.fill_diagonal(log_p, 0)
+    
+    # Custom single-color scale (Monochromatic Blues)
+    mono_blues = [
+        [0.0, '#f4f8ff'],      # ns / diagonal -> Ice white-blue
+        [0.25, '#c6e0fe'],     # p ~ 0.05 (*) -> Soft light blue
+        [0.6, '#3d8bfd'],      # p ~ 0.01 (**) -> Medium blue
+        [1.0, '#0a58ca']       # p < 0.001 (***) -> Deep navy blue
+    ]
+
+    if k <= 6:
+        font_size = 12
+        tick_size = 12
+    elif k <= 10:
+        font_size = 10
+        tick_size = 10
+    elif k <= 14:
+        font_size = 8
+        tick_size = 9
+    else:
+        font_size = 7
+        tick_size = 8
+
+    fig = go.Figure(data=go.Heatmap(
+        z=log_p,
+        x=grupos,
+        y=grupos,
+        text=text_matrix,
+        customdata=hover_text_matrix,
+        texttemplate="%{text}",
+        textfont={"size": font_size, "color": "#111827"},
+        colorscale=mono_blues,
+        colorbar=dict(title="-log10(p-adj)"),
+        hovertemplate="Grupo 1: %{y}<br>Grupo 2: %{x}<br>%{customdata}<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title=f"Heatmap de Significância (Post-Hoc Tukey HSD: {group_col})",
+        xaxis=dict(title="Grupo / Condição", tickfont=dict(size=tick_size)),
+        yaxis=dict(title="Grupo / Condição", autorange="reversed", tickfont=dict(size=tick_size)),
+        template="plotly_white",
+        margin=dict(t=60, b=40, l=60, r=40)
+    )
+    
+    return fig, None
+
+

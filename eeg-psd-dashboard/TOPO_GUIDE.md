@@ -17,6 +17,23 @@ A escala do mapa determina como as cores são distribuídas. Escolher a escala c
 
 ---
 
+## 🔄 Modo Comparação (Inverter Linhas por Colunas)
+
+Esta opção fica disponível quando o número de plots selecionado é **2** ou **3**.
+*   **Padrão (Desativado):** O dashboard gera uma linha horizontal de 6 topoplots (bandas de frequência) para cada painel configurado.
+*   **Ativado:** A grade é invertida. As **linhas** passam a representar as faixas de frequência (Total, Delta, Theta, Alfa, Beta, Gama) e as **colunas** passam a representar os painéis/configurações.
+    *   *Uso recomendado:* Excelente para comparar visualmente e lado a lado a ativação de uma mesma faixa de frequência entre diferentes protocolos ou grupos.
+
+---
+
+## 📥 Exportação de Imagens (Salvar Imagem)
+
+Você pode baixar qualquer visualização de mapa gerada em formato **PNG** diretamente do dashboard:
+*   **Como usar:** Ao executar o processamento dos topoplots, botões dinâmicos de download (como `📥 Salvar Comparação` ou `📥 Salvar Painel 1`) serão exibidos no topo do painel de resultados (ao lado deste Guia).
+*   **Organização:** As imagens são salvas automaticamente na sua pasta de Downloads com nomes descritivos baseados no tipo de gráfico gerado.
+
+---
+
 ## 🤝 Opção "Ambos" e Médias Ponderadas
 
 Ao selecionar a opção **"Ambos"** para o Grupo ou Fase, o sistema não faz uma média simples, mas sim uma **média ponderada pelo número de trials ($n$)** de cada condição.
