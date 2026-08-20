@@ -30,7 +30,8 @@ base_path = os.path.dirname(__file__)
 
 from performance_engine import (
     run_normality_test, run_anova_typ3, plot_interactive_dot_sig, 
-    plot_interactive_interaction, plot_interactive_hybrid, plot_interactive_significance_heatmap
+    plot_interactive_interaction, plot_interactive_hybrid, plot_interactive_significance_heatmap,
+    run_spatial_proportions_analysis
 )
 
 try:
@@ -314,16 +315,32 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
 
         # Compute Embeddings using math_labels for supervision
         X_scores, Y_scores, stats = compute_embeddings(X, Y, math_labels, method, max(3, n_dims))
-        
         # Build Plot Coordinates
         coords_df = pd.DataFrame(index=X.index)
         axis_names = []
         
+        exp_var_x = None
+        if method == 'PCA' and 'X_explained_variance' in stats:
+            exp_var_x = stats['X_explained_variance']
+        elif method == 'LDA' and 'X_explained_variance' in stats:
+            exp_var_x = stats['X_explained_variance']
+        elif method == 'CDA' and 'CDA_X' in stats and 'explained_variance_ratio' in stats['CDA_X']:
+            exp_var_x = stats['CDA_X']['explained_variance_ratio']
+
+        exp_var_y = None
+        if method == 'PCA' and 'Y_explained_variance' in stats:
+            exp_var_y = stats['Y_explained_variance']
+        elif method == 'LDA' and 'Y_explained_variance' in stats:
+            exp_var_y = stats['Y_explained_variance']
+        elif method == 'CDA' and 'CDA_Y' in stats and 'explained_variance_ratio' in stats['CDA_Y']:
+            exp_var_y = stats['CDA_Y']['explained_variance_ratio']
+
         if domain == 'x':
              if X_scores is not None and not X_scores.empty:
                  cols_to_use = min(n_dims, X_scores.shape[1])
                  for i in range(cols_to_use):
-                     axis_name = f"{method} {i+1} (X)"
+                     var_str = f" - {exp_var_x[i]*100:.1f}%" if (exp_var_x is not None and len(exp_var_x) > i) else ""
+                     axis_name = f"{method} {i+1} (X){var_str}"
                      coords_df[axis_name] = X_scores.iloc[:, i]
                      axis_names.append(axis_name)
                  while len(coords_df.columns) < n_dims:
@@ -337,7 +354,8 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
              if Y_scores is not None and not Y_scores.empty:
                  cols_to_use = min(n_dims, Y_scores.shape[1])
                  for i in range(cols_to_use):
-                     axis_name = f"{method} {i+1} (Y)"
+                     var_str = f" - {exp_var_y[i]*100:.1f}%" if (exp_var_y is not None and len(exp_var_y) > i) else ""
+                     axis_name = f"{method} {i+1} (Y){var_str}"
                      coords_df[axis_name] = Y_scores.iloc[:, i]
                      axis_names.append(axis_name)
                  while len(coords_df.columns) < n_dims:
@@ -349,9 +367,9 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                  
         elif domain == 'both':
              for d in range(n_dims):
-                 # default map if no axis list supplied
                  axis_sel = axes[d] if axes and len(axes) > d and axes[d] else None
                  val = 0
+                 axis_name = f"Dim{d+1}"
                  if axis_sel:
                       parts = axis_sel.split('_') # e.g. "C1_X"
                       comp_idx = int(parts[0].replace('C', '')) - 1
@@ -359,35 +377,75 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                       
                       if source == 'X' and X_scores is not None and comp_idx < X_scores.shape[1]:
                           val = X_scores.iloc[:, comp_idx]
+                          var_str = f" - {exp_var_x[comp_idx]*100:.1f}%" if (exp_var_x is not None and len(exp_var_x) > comp_idx) else ""
+                          axis_name = f"{method} {comp_idx+1} (X){var_str}"
                       elif source == 'Y' and Y_scores is not None and comp_idx < Y_scores.shape[1]:
                           val = Y_scores.iloc[:, comp_idx]
+                          var_str = f" - {exp_var_y[comp_idx]*100:.1f}%" if (exp_var_y is not None and len(exp_var_y) > comp_idx) else ""
+                          axis_name = f"{method} {comp_idx+1} (Y){var_str}"
                           
-                 axis_name = axis_sel.replace('_', ' of ') if axis_sel else f"Dim{d+1}"
                  coords_df[axis_name] = val
                  axis_names.append(axis_name)
-                 
+                  
         # Combine coords with meta for plotting
         plot_df = pd.concat([coords_df, meta], axis=1)
         plot_df['color_label'] = color_labels
         plot_df['symbol_label'] = symbol_labels
         plot_df['cluster_label'] = cluster_labels
         
-        # --- Projected ANOVA ---
-        # Calculate ANOVA on the first plotted dimension vs cluster labels
-        # we must drop NaNs for the stat test
-        stat_df = plot_df[[axis_names[0], 'cluster_label']].dropna()
-        try:
-            if not stat_df.empty and len(stat_df['cluster_label'].unique()) > 1:
-                from anova_engine import compute_anova_and_plot
-                anova_fig, anova_stats = compute_anova_and_plot(stat_df, axis_names[0], 'cluster_label')
-                anova_fig.update_layout(title=f"ANOVA: {axis_names[0]}")
-                if theme == 'dark':
-                    anova_fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-                anova_res_text = f"F: {anova_stats.get('F', 0):.2f} | p-value: {anova_stats.get('p_value', 1):.4f}"
-            else:
-                anova_fig, anova_res_text = go.Figure(), "ANOVA: Insufficient groups/data"
-        except Exception as ae:
-            anova_fig, anova_res_text = go.Figure(), f"ANOVA Error: {str(ae)}"
+        # --- Projected ANOVAs for CD1, CD2, CD3 ---
+        dim_candidates = []
+        if domain == 'x' and X_scores is not None and not X_scores.empty:
+            for k in range(min(3, X_scores.shape[1])):
+                var_str = f" - {exp_var_x[k]*100:.1f}%" if (exp_var_x is not None and len(exp_var_x) > k) else ""
+                dim_name = f"{method} {k+1} (X){var_str}"
+                dim_candidates.append((dim_name, X_scores.iloc[:, k]))
+        elif domain == 'y' and Y_scores is not None and not Y_scores.empty:
+            for k in range(min(3, Y_scores.shape[1])):
+                var_str = f" - {exp_var_y[k]*100:.1f}%" if (exp_var_y is not None and len(exp_var_y) > k) else ""
+                dim_name = f"{method} {k+1} (Y){var_str}"
+                dim_candidates.append((dim_name, Y_scores.iloc[:, k]))
+        else: # domain == 'both'
+            for d in range(min(3, len(axis_names))):
+                dim_name = axis_names[d]
+                dim_candidates.append((dim_name, coords_df[dim_name]))
+
+        from anova_engine import compute_anova_and_plot
+        
+        def run_dim_anova(dim_idx):
+            if dim_idx >= len(dim_candidates):
+                empty_fig = go.Figure()
+                empty_fig.update_layout(
+                    title=f"CD{dim_idx+1}: Dimensão não disponível", 
+                    template='plotly_dark' if theme == 'dark' else 'plotly_white',
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
+                )
+                return empty_fig, f"Dimensão CD{dim_idx+1} não calculada para este modelo/número de classes."
+                
+            d_name, d_series = dim_candidates[dim_idx]
+            s_df = pd.DataFrame({'val': d_series, 'cluster_label': cluster_labels}).dropna()
+            try:
+                if not s_df.empty and len(s_df['cluster_label'].unique()) > 1:
+                    fig_a, stats_a = compute_anova_and_plot(s_df, 'val', 'cluster_label')
+                    fig_a.update_layout(title=f"ANOVA: {d_name}")
+                    if theme == 'dark':
+                        fig_a.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                    p_val = stats_a.get('p_value', 1)
+                    sig_badge = " (Significativo: p < 0.05)" if p_val < 0.05 else " (Não significativo: ns)"
+                    res_txt = f"F: {stats_a.get('F', 0):.2f} | p-valor: {p_val:.4e}{sig_badge}"
+                    return fig_a, res_txt
+                else:
+                    empty_fig = go.Figure()
+                    empty_fig.update_layout(title=f"ANOVA: {d_name} (Insuficiente)")
+                    return empty_fig, "ANOVA: Grupos ou dados insuficientes."
+            except Exception as ae:
+                empty_fig = go.Figure()
+                empty_fig.update_layout(title=f"ANOVA Error: {d_name}")
+                return empty_fig, f"ANOVA Error: {str(ae)}"
+
+        anova_fig1, anova_res1 = run_dim_anova(0)
+        anova_fig2, anova_res2 = run_dim_anova(1)
+        anova_fig3, anova_res3 = run_dim_anova(2)
 
         # --- Centroid Distances ---
         centroid_res = []
@@ -472,48 +530,46 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         stats_content = []
         
         if 'X_explained_variance' in stats:
-             var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['X_explained_variance'])])
-             stats_content.append(html.P([html.Strong("X Var: "), var_txt]))
+             var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['X_explained_variance'][:3])])
+             stats_content.append(html.P([html.Strong("X Var (3 primeiras): "), var_txt]))
         if 'Y_explained_variance' in stats:
-             var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['Y_explained_variance'])])
-             stats_content.append(html.P([html.Strong("Y Var: "), var_txt]))
+             var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['Y_explained_variance'][:3])])
+             stats_content.append(html.P([html.Strong("Y Var (3 primeiras): "), var_txt]))
         if 'canonical_correlations' in stats:
-             corr_txt = ", ".join([f"r{i+1}: {c:.3f}" for i, c in enumerate(stats['canonical_correlations'])])
-             stats_content.append(html.P([html.Strong("Canonical Corrs: "), corr_txt]))
+             corr_txt = ", ".join([f"r{i+1}: {c:.3f}" for i, c in enumerate(stats['canonical_correlations'][:3])])
+             stats_content.append(html.P([html.Strong("Canonical Corrs (3 primeiras): "), corr_txt]))
              
         if 'CDA_X' in stats:
              cdx = stats['CDA_X']
-             chisqs = ", ".join([f"{c:.1f}" for c in cdx['chisq']])
+             chisqs = ", ".join([f"{c:.1f}" for c in cdx['chisq'][:3]])
              stats_content.append(html.P([html.Strong("CDA X Ext. Dims: "), str(cdx['d'])]))
-             stats_content.append(html.P([html.Strong("CDA X ChiSqs: "), chisqs]))
+             stats_content.append(html.P([html.Strong("CDA X ChiSqs (3 primeiras): "), chisqs]))
              if 'explained_variance_ratio' in cdx:
-                 var_txt = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdx['explained_variance_ratio'])])
-                 stats_content.append(html.P([html.Strong("CDA X Var Explicada: "), var_txt]))
+                 var_txt = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdx['explained_variance_ratio'][:3])])
+                 stats_content.append(html.P([html.Strong("CDA X Var Explicada (3 primeiras): "), var_txt]))
              if 'eigenval' in cdx:
-                 eig_txt = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdx['eigenval'])])
-                 stats_content.append(html.P([html.Strong("CDA X Eigenvalues: "), eig_txt]))
+                 eig_txt = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdx['eigenval'][:3])])
+                 stats_content.append(html.P([html.Strong("CDA X Eigenvalues (3 primeiras): "), eig_txt]))
 
         if 'CDA_Y' in stats:
              cdy = stats['CDA_Y']
-             chisqs_y = ", ".join([f"{c:.1f}" for c in cdy['chisq']])
+             chisqs_y = ", ".join([f"{c:.1f}" for c in cdy['chisq'][:3]])
              stats_content.append(html.P([html.Strong("CDA Y Ext. Dims: "), str(cdy['d'])]))
-             stats_content.append(html.P([html.Strong("CDA Y ChiSqs: "), chisqs_y]))
+             stats_content.append(html.P([html.Strong("CDA Y ChiSqs (3 primeiras): "), chisqs_y]))
              if 'explained_variance_ratio' in cdy:
-                 var_txt_y = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdy['explained_variance_ratio'])])
-                 stats_content.append(html.P([html.Strong("CDA Y Var Explicada: "), var_txt_y]))
+                 var_txt_y = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdy['explained_variance_ratio'][:3])])
+                 stats_content.append(html.P([html.Strong("CDA Y Var Explicada (3 primeiras): "), var_txt_y]))
              if 'eigenval' in cdy:
-                 eig_txt_y = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdy['eigenval'])])
-                 stats_content.append(html.P([html.Strong("CDA Y Eigenvalues: "), eig_txt_y]))
+                 eig_txt_y = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdy['eigenval'][:3])])
+                 stats_content.append(html.P([html.Strong("CDA Y Eigenvalues (3 primeiras): "), eig_txt_y]))
 
-        # We must return 5 elements
-        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig, anova_res_text, html.Div(centroid_res, className="d-flex flex-wrap")
+        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, html.Div(centroid_res, className="d-flex flex-wrap")
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        error_fig = go.Figure()
-        error_fig.update_layout(title=f"Error: {str(e)}")
-        return error_fig, html.Div(f"Error: {str(e)}"), go.Figure(), "", ""
+        error_fig = go.Figure().update_layout(title=f"Error: {str(e)}")
+        return error_fig, html.Div(f"Error: {str(e)}"), go.Figure(), "", go.Figure(), "", go.Figure(), "", ""
 
 
 # A primeira definicao de get_performance_layout era duplicada e foi removida.
@@ -598,9 +654,19 @@ def get_analysis_layout():
             ], className="card mb-3", style={'position': 'relative'}),
             html.Div([html.H4("Statistics"), html.Div(id='stats-1')], className="card mb-3"),
             html.Div([
-                html.H4("ANOVA Test"),
+                html.H4("ANOVA Test — CD1"),
                 html.Div(id='anova-stats-1', className="mb-2"),
                 dcc.Graph(id='anova-plot-1', style={'height': '500px'})
+            ], className="card mb-3"),
+            html.Div([
+                html.H4("ANOVA Test — CD2"),
+                html.Div(id='anova-stats-1-cd2', className="mb-2"),
+                dcc.Graph(id='anova-plot-1-cd2', style={'height': '500px'})
+            ], className="card mb-3"),
+            html.Div([
+                html.H4("ANOVA Test — CD3"),
+                html.Div(id='anova-stats-1-cd3', className="mb-2"),
+                dcc.Graph(id='anova-plot-1-cd3', style={'height': '500px'})
             ], className="card mb-3"),
             html.Div([
                 html.H4("Centroid Distances"),
@@ -619,9 +685,19 @@ def get_analysis_layout():
                     ], className="card mb-3", style={'position': 'relative'}),
                     html.Div([html.H5("Stats 1"), html.Div(id='stats-left')], className="card mt-3 mb-3"),
                     html.Div([
-                        html.H5("ANOVA 1"),
+                        html.H5("ANOVA 1 — CD1"),
                         html.Div(id='anova-stats-left', className="mb-2"),
                         dcc.Graph(id='anova-plot-left', style={'height': '400px'})
+                    ], className="card mb-3"),
+                    html.Div([
+                        html.H5("ANOVA 1 — CD2"),
+                        html.Div(id='anova-stats-left-cd2', className="mb-2"),
+                        dcc.Graph(id='anova-plot-left-cd2', style={'height': '400px'})
+                    ], className="card mb-3"),
+                    html.Div([
+                        html.H5("ANOVA 1 — CD3"),
+                        html.Div(id='anova-stats-left-cd3', className="mb-2"),
+                        dcc.Graph(id='anova-plot-left-cd3', style={'height': '400px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("Centroid Distances 1"), 
@@ -637,9 +713,19 @@ def get_analysis_layout():
                     ], className="card mb-3", style={'position': 'relative'}),
                     html.Div([html.H5("Stats 2"), html.Div(id='stats-right')], className="card mt-3 mb-3"),
                     html.Div([
-                        html.H5("ANOVA 2"),
+                        html.H5("ANOVA 2 — CD1"),
                         html.Div(id='anova-stats-right', className="mb-2"),
                         dcc.Graph(id='anova-plot-right', style={'height': '400px'})
+                    ], className="card mb-3"),
+                    html.Div([
+                        html.H5("ANOVA 2 — CD2"),
+                        html.Div(id='anova-stats-right-cd2', className="mb-2"),
+                        dcc.Graph(id='anova-plot-right-cd2', style={'height': '400px'})
+                    ], className="card mb-3"),
+                    html.Div([
+                        html.H5("ANOVA 2 — CD3"),
+                        html.Div(id='anova-stats-right-cd3', className="mb-2"),
+                        dcc.Graph(id='anova-plot-right-cd3', style={'height': '400px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("Centroid Distances 2"), 
@@ -701,24 +787,38 @@ def get_psd_layout():
             ),
             
             html.Hr(),
-            html.Label("Stratification Label", className="control-label"),
+            html.Label("Estratificar por Linhas (Subplots)", className="control-label"),
             dcc.Dropdown(
                 id='psd-stratify-dropdown',
                 options=[
-                    {'label': 'Group (CV/SV)', 'value': 'grupo'},
-                    {'label': 'Complexity', 'value': 'complexity'},
-                    {'label': 'Overlap', 'value': 'overlap'}
+                    {'label': 'Sem Estratificação (Linha Única)', 'value': 'none'},
+                    {'label': 'Grupo (CV/SV)', 'value': 'grupo'},
+                    {'label': 'Complexidade', 'value': 'complexity'},
+                    {'label': 'Overlap', 'value': 'overlap'},
+                    {'label': 'Grupo + Complexidade', 'value': 'grupo_complexity'},
+                    {'label': 'Grupo + Overlap', 'value': 'grupo_overlap'},
+                    {'label': 'Complexidade + Overlap', 'value': 'complexity_overlap'},
+                    {'label': 'Todos os Fatores', 'value': 'all'}
                 ],
                 value='grupo',
                 className="mb-3 dash-dropdown"
             ),
             
-            dcc.Checklist(
-                id='psd-overlay-toggle',
-                options=[{'label': ' Overlap Condition (Mean Only)', 'value': 'yes'}],
-                value=['yes'],
-                className="mb-4 text-muted",
-                style={'fontSize': '0.9em'}
+            html.Label("Sobrepor por Cores (No mesmo plot)", className="control-label"),
+            dcc.Dropdown(
+                id='psd-overlay-dropdown',
+                options=[
+                    {'label': 'Sem Sobreposição (Mostrar Trials)', 'value': 'none'},
+                    {'label': 'Grupo (CV/SV)', 'value': 'grupo'},
+                    {'label': 'Complexidade', 'value': 'complexity'},
+                    {'label': 'Overlap', 'value': 'overlap'},
+                    {'label': 'Grupo + Complexidade', 'value': 'grupo_complexity'},
+                    {'label': 'Grupo + Overlap', 'value': 'grupo_overlap'},
+                    {'label': 'Complexidade + Overlap', 'value': 'complexity_overlap'},
+                    {'label': 'Todos os Fatores', 'value': 'all'}
+                ],
+                value='none',
+                className="mb-4 dash-dropdown"
             ),
             
             html.Button("Run PSD", id='run-psd-btn', className="btn btn-primary w-100"),
@@ -1061,10 +1161,68 @@ def get_performance_layout():
                     value=[],
                     className="mb-2 text-muted",
                     style={'fontSize': '0.9em'}
-                )
+                ),
+                
+                html.Div(id='perf-anova-color-sig-check-container', children=[
+                    dcc.Checklist(
+                        id='perf-anova-color-sig-check',
+                        options=[{'label': ' Colorir barras de significância por tipo de comparação', 'value': 'yes'}],
+                        value=[],
+                        className="mb-2 text-muted",
+                        style={'fontSize': '0.9em'}
+                    )
+                ])
             ]),
             
             html.Hr(),
+            
+            html.Div(id='perf-spatial-prop-check-container', children=[
+                dcc.Checklist(
+                    id='perf-spatial-prop-check',
+                    options=[{'label': ' Testar Proporções Espacial entre grupos', 'value': 'yes'}],
+                    value=[],
+                    className="mb-2"
+                ),
+                html.Div(id='perf-spatial-controls', style={'display': 'none'}, children=[
+                    html.Div(id='perf-spatial-ylim-container', children=[
+                        html.Label("Limites do Eixo Y (Mín, Máx)", className="control-label"),
+                        html.Div([
+                            dcc.Input(id='perf-spatial-ylim-min', type='number', placeholder='Mín', className="form-control me-2", style={'width': '48%', 'display': 'inline-block'}),
+                            dcc.Input(id='perf-spatial-ylim-max', type='number', placeholder='Máx', className="form-control", style={'width': '48%', 'display': 'inline-block'})
+                        ], className="mb-2", style={'display': 'flex', 'justifyContent': 'space-between'})
+                    ]),
+                    dcc.Checklist(
+                        id='perf-spatial-distinguish-check',
+                        options=[{'label': ' Distinguir médias por Cor/Símbolo', 'value': 'yes'}],
+                        value=[],
+                        className="mt-2 mb-2 text-muted",
+                        style={'fontSize': '0.9em'}
+                    ),
+                    dcc.Checklist(
+                        id='perf-spatial-jitter-check',
+                        options=[{'label': ' Exibir pontos de dispersão', 'value': 'yes'}],
+                        value=['yes'],
+                        className="mb-2 text-muted",
+                        style={'fontSize': '0.9em'}
+                    ),
+                    dcc.Checklist(
+                        id='perf-spatial-heatmap-check',
+                        options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}],
+                        value=[],
+                        className="mb-2 text-muted",
+                        style={'fontSize': '0.9em'}
+                    ),
+                    html.Div(id='perf-spatial-color-sig-check-container', children=[
+                        dcc.Checklist(
+                            id='perf-spatial-color-sig-check',
+                            options=[{'label': ' Colorir barras de significância por tipo de comparação', 'value': 'yes'}],
+                            value=[],
+                            className="mb-2 text-muted",
+                            style={'fontSize': '0.9em'}
+                        )
+                    ])
+                ])
+            ]),
             
             html.Div(id='perf-alpha-container', style={'display': 'none'}, children=[
                 html.Label("Nível de Significância (Alpha)", className="control-label"),
@@ -1121,6 +1279,35 @@ def get_performance_layout():
                 ])
             ]),
             
+            html.Div(id='perf-spatial-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
+                html.H4("Comparação de Proporções Espaciais entre Grupos", className="text-primary mb-1"),
+                html.P("Comparação estatística (Teste-t de Welch e Tukey Post-Hoc) entre os subgrupos experimentais para Proporção Espacial X e Proporção Espacial Y.", className="text-muted small mb-3"),
+                
+                # Bloco 1: Proporção Espacial X (largura total)
+                html.Div([
+                    html.H5("Proporção Espacial X", className="text-secondary fw-bold"),
+                    dcc.Graph(id='perf-spatial-x-plot', style={'minHeight': '500px', 'marginTop': '10px'}),
+                    html.Div(id='perf-spatial-x-heatmap-container', style={'display': 'none'}, children=[
+                        html.H6("Heatmap de Significância (Proporção Espacial X)", className="text-primary mt-3"),
+                        dcc.Graph(id='perf-spatial-x-heatmap', style={'height': '400px', 'marginTop': '5px'})
+                    ]),
+                    html.Div(id='perf-spatial-x-stats', className="p-3 border rounded bg-light mt-2 mb-4")
+                ], className="mb-4"),
+                
+                html.Hr(),
+                
+                # Bloco 2: Proporção Espacial Y (largura total)
+                html.Div([
+                    html.H5("Proporção Espacial Y", className="text-secondary fw-bold"),
+                    dcc.Graph(id='perf-spatial-y-plot', style={'minHeight': '500px', 'marginTop': '10px'}),
+                    html.Div(id='perf-spatial-y-heatmap-container', style={'display': 'none'}, children=[
+                        html.H6("Heatmap de Significância (Proporção Espacial Y)", className="text-primary mt-3"),
+                        dcc.Graph(id='perf-spatial-y-heatmap', style={'height': '400px', 'marginTop': '5px'})
+                    ]),
+                    html.Div(id='perf-spatial-y-stats', className="p-3 border rounded bg-light mt-2")
+                ], className="mb-2")
+            ]),
+
             html.Div(id='perf-interaction-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
                 html.H4("Interaction Plot", className="text-success"),
                 dcc.Graph(id='perf-interaction-plot', style={'height': '500px'})
@@ -1495,6 +1682,8 @@ def options_axis_selectors(protocol, domains):
 @app.callback(
     [Output('plot-1', 'figure'), Output('stats-1', 'children'),
      Output('anova-plot-1', 'figure'), Output('anova-stats-1', 'children'),
+     Output('anova-plot-1-cd2', 'figure'), Output('anova-stats-1-cd2', 'children'),
+     Output('anova-plot-1-cd3', 'figure'), Output('anova-stats-1-cd3', 'children'),
      Output('centroid-distance-1', 'children'),
      Output('info-panel', 'children')],
     Input('run-btn', 'n_clicks'),
@@ -1520,24 +1709,30 @@ def update_single_analysis(n, prot, groups, meth, x_mode, fase, selected_channel
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
-        return fig, "No data", go.Figure(), "", html.P("Ready")
+        return fig, "No data", go.Figure(), "", go.Figure(), "", go.Figure(), "", "", html.P("Ready")
     
     axes = [ax1, ax2, ax3]
-    fig, stats, anova_fig, anova_res, centroid_res = run_single_analysis(prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by, fase, selected_channels)
+    fig, stats, anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, centroid_res = run_single_analysis(
+        prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by, fase, selected_channels
+    )
     
     info = html.Div([
         html.P([html.Strong("Protocol: "), prot]),
         html.P([html.Strong("Groups: "), ", ".join(groups) if groups else "All"]),
         html.H6(f"Method: {meth}", style={'marginTop': '10px'}),
     ])
-    return fig, stats, anova_fig, anova_res, centroid_res, info
+    return fig, stats, anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, centroid_res, info
 
 @app.callback(
     [Output('plot-left', 'figure'), Output('stats-left', 'children'),
      Output('anova-plot-left', 'figure'), Output('anova-stats-left', 'children'),
+     Output('anova-plot-left-cd2', 'figure'), Output('anova-stats-left-cd2', 'children'),
+     Output('anova-plot-left-cd3', 'figure'), Output('anova-stats-left-cd3', 'children'),
      Output('centroid-distance-left', 'children'),
      Output('plot-right', 'figure'), Output('stats-right', 'children'),
      Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children'),
+     Output('anova-plot-right-cd2', 'figure'), Output('anova-stats-right-cd2', 'children'),
+     Output('anova-plot-right-cd3', 'figure'), Output('anova-stats-right-cd3', 'children'),
      Output('centroid-distance-right', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
@@ -1563,21 +1758,21 @@ def update_comparison(n, prot, groups, methods, x_modes, fases, selected_channel
     fig.update_layout(title="Enable comparison mode")
     
     if n == 0 or 'yes' not in comp or len(methods) < 2:
-        return fig, "Waiting...", go.Figure(), "", "", fig, "Waiting...", go.Figure(), "", ""
+        return fig, "Waiting...", go.Figure(), "", go.Figure(), "", go.Figure(), "", "", fig, "Waiting...", go.Figure(), "", go.Figure(), "", go.Figure(), "", ""
         
     # Analysis 1
     axes1 = [ax1s[0], ax2s[0], ax3s[0]]
-    fig1, stats1, anova_fig1, anova_res1, centroid_res1 = run_single_analysis(
+    fig1, stats1, anova_fig1_1, anova_res1_1, anova_fig1_2, anova_res1_2, anova_fig1_3, anova_res1_3, centroid_res1 = run_single_analysis(
         prot, groups, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0], supervisions[0], fases[0], selected_channels_lists[0]
     )
     
     # Analysis 2
     axes2 = [ax1s[1], ax2s[1], ax3s[1]]
-    fig2, stats2, anova_fig2, anova_res2, centroid_res2 = run_single_analysis(
+    fig2, stats2, anova_fig2_1, anova_res2_1, anova_fig2_2, anova_res2_2, anova_fig2_3, anova_res2_3, centroid_res2 = run_single_analysis(
         prot, groups, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1], supervisions[1], fases[1], selected_channels_lists[1]
     )
     
-    return fig1, stats1, anova_fig1, anova_res1, centroid_res1, fig2, stats2, anova_fig2, anova_res2, centroid_res2
+    return fig1, stats1, anova_fig1_1, anova_res1_1, anova_fig1_2, anova_res1_2, anova_fig1_3, anova_res1_3, centroid_res1, fig2, stats2, anova_fig2_1, anova_res2_1, anova_fig2_2, anova_res2_2, anova_fig2_3, anova_res2_3, centroid_res2
 
 # Expose server for Vercel
 server = app.server
@@ -1618,11 +1813,11 @@ def update_psd_stratify_options(prot):
      State('psd-scale-radio', 'value'),
      State('psd-bands-toggle', 'value'),
      State('psd-stratify-dropdown', 'value'),
-     State('psd-overlay-toggle', 'value'),
+     State('psd-overlay-dropdown', 'value'),
      State('theme-store', 'data')],
     prevent_initial_call=True
 )
-def run_psd_visualization(n_clicks, protocol, fase, channels, scale, bands_toggle, stratify_by, overlay_toggle, theme):
+def run_psd_visualization(n_clicks, protocol, fase, channels, scale, bands_toggle, stratify_by, overlay_by, theme):
     try:
         # Load caching
         if protocol not in data_cache:
@@ -1648,9 +1843,20 @@ def run_psd_visualization(n_clicks, protocol, fase, channels, scale, bands_toggl
         stratify_col = 'Complexidade'
     elif stratify_by == 'overlap':
         stratify_col = 'Overlap'
+    elif stratify_by in ['grupo_complexity', 'grupo_overlap', 'complexity_overlap', 'all']:
+        stratify_col = stratify_by
+
+    overlay_col = None
+    if overlay_by == 'grupo':
+        overlay_col = 'grupo'
+    elif overlay_by == 'complexity':
+        overlay_col = 'Complexidade'
+    elif overlay_by == 'overlap':
+        overlay_col = 'Overlap'
+    elif overlay_by in ['grupo_complexity', 'grupo_overlap', 'complexity_overlap', 'all']:
+        overlay_col = overlay_by
 
     show_bands = 'yes' in (bands_toggle or [])
-    overlay_strata = 'yes' in (overlay_toggle or [])
     
     try:
         fig = create_psd_subplots(
@@ -1658,14 +1864,16 @@ def run_psd_visualization(n_clicks, protocol, fase, channels, scale, bands_toggl
             df_x=df_x,
             channels_selected=channels,
             stratify_by=stratify_col,
+            overlay_by=overlay_col,
             scale=scale,
             show_bands=show_bands,
-            overlay_strata=overlay_strata,
             theme=theme
         )
         
+        n_strat = len(meta[stratify_col].unique()) if (stratify_col and stratify_col in meta.columns) else 1
+        n_over = len(meta[overlay_col].unique()) if (overlay_col and overlay_col in meta.columns) else 1
         info_html = html.Div(
-            f"Successfully rendered {len(channels)} channels × {len(meta[stratify_col].unique()) if stratify_col in meta.columns else 1} conditions.", 
+            f"Successfully rendered {len(channels)} channels × {n_strat} rows × {n_over} colors.", 
             className="text-success"
         )
         return fig, info_html
@@ -2257,18 +2465,21 @@ def download_topo_image(n_clicks, img_base64):
     [Output('perf-normality-controls', 'style'),
      Output('perf-anova-controls', 'style'),
      Output('perf-interaction-controls', 'style'),
+     Output('perf-spatial-controls', 'style'),
      Output('perf-alpha-container', 'style')],
     [Input('perf-normality-check', 'value'),
      Input('perf-anova-check', 'value'),
      Input('perf-interaction-check', 'value'),
-     Input('perf-hybrid-check', 'value')]
+     Input('perf-hybrid-check', 'value'),
+     Input('perf-spatial-prop-check', 'value')]
 )
-def toggle_performance_controls(norm_val, anova_val, inter_val, hybrid_val):
+def toggle_performance_controls(norm_val, anova_val, inter_val, hybrid_val, spatial_val):
     norm_style = {'display': 'block'} if 'yes' in (norm_val or []) else {'display': 'none'}
     anova_style = {'display': 'block'} if 'yes' in (anova_val or []) else {'display': 'none'}
     inter_style = {'display': 'block'} if ('yes' in (inter_val or []) or 'yes' in (hybrid_val or [])) else {'display': 'none'}
-    alpha_style = {'display': 'block'} if ('yes' in (norm_val or []) or 'yes' in (anova_val or [])) else {'display': 'none'}
-    return norm_style, anova_style, inter_style, alpha_style
+    spatial_style = {'display': 'block'} if 'yes' in (spatial_val or []) else {'display': 'none'}
+    alpha_style = {'display': 'block'} if ('yes' in (norm_val or []) or 'yes' in (anova_val or []) or 'yes' in (spatial_val or [])) else {'display': 'none'}
+    return norm_style, anova_style, inter_style, spatial_style, alpha_style
 
 @app.callback(
     [Output('perf-normality-group', 'options'),
@@ -2281,12 +2492,14 @@ def toggle_performance_controls(norm_val, anova_val, inter_val, hybrid_val):
      Output('perf-interaction-line', 'value'),
      Output('perf-interaction-facet', 'options'),
      Output('perf-interaction-facet', 'value'),
-     Output('perf-interaction-check-container', 'style')],
+     Output('perf-interaction-check-container', 'style'),
+     Output('perf-spatial-prop-check-container', 'style')],
     [Input('perf-protocol-dropdown', 'value')]
 )
 def update_perf_options(prot):
     norm_style = {'display': 'block'}
     inter_check_style = {'display': 'block'}
+    spatial_check_style = {'display': 'block'} if prot in ['A', 'B'] else {'display': 'none'}
     if prot == 'C':
         inter_check_style = {'display': 'none'}
     if prot == 'A':
@@ -2308,13 +2521,16 @@ def update_perf_options(prot):
     il_val = indep_opts[1]['value'] if len(indep_opts) > 1 else indep_opts[0]['value']
     if_opts = [{'label': 'None', 'value': 'None'}] + indep_opts
     if_val = 'None'
-    return norm_opts, norm_style, indep_opts, indep_val, ix_opts, ix_val, ix_opts, il_val, if_opts, if_val, inter_check_style
+    return norm_opts, norm_style, indep_opts, indep_val, ix_opts, ix_val, ix_opts, il_val, if_opts, if_val, inter_check_style, spatial_check_style
 
 @app.callback(
     [Output('perf-normality-result-card', 'style'), Output('perf-normality-output', 'children'),
      Output('perf-anova-result-card', 'style'), Output('perf-anova-table-output', 'children'),
      Output('perf-interaction-result-card', 'style'), Output('perf-interaction-plot', 'figure'),
      Output('perf-hybrid-result-card', 'style'), Output('perf-hybrid-plot', 'figure'),
+     Output('perf-spatial-result-card', 'style'),
+     Output('perf-spatial-x-plot', 'figure'), Output('perf-spatial-x-heatmap-container', 'style'), Output('perf-spatial-x-heatmap', 'figure'), Output('perf-spatial-x-stats', 'children'),
+     Output('perf-spatial-y-plot', 'figure'), Output('perf-spatial-y-heatmap-container', 'style'), Output('perf-spatial-y-heatmap', 'figure'), Output('perf-spatial-y-stats', 'children'),
      Output('perf-controls-error', 'children')],
     [Input('perf-run-btn', 'n_clicks')],
     [State('perf-protocol-dropdown', 'value'), State('perf-normality-check', 'value'),
@@ -2322,21 +2538,28 @@ def update_perf_options(prot):
      State('perf-anova-check', 'value'), State('perf-anova-target', 'value'),
      State('perf-anova-independents', 'value'), State('perf-alpha-input', 'value'),
      State('perf-interaction-check', 'value'), State('perf-hybrid-check', 'value'),
+     State('perf-spatial-prop-check', 'value'),
+     State('perf-spatial-ylim-min', 'value'), State('perf-spatial-ylim-max', 'value'),
+     State('perf-spatial-distinguish-check', 'value'), State('perf-spatial-jitter-check', 'value'),
+     State('perf-spatial-heatmap-check', 'value'), State('perf-spatial-color-sig-check', 'value'),
      State('perf-interaction-x', 'value'), State('perf-interaction-y', 'value'),
      State('perf-interaction-line', 'value'), State('perf-interaction-facet', 'value'),
      State('perf-ylim-min', 'value'), State('perf-ylim-max', 'value')]
 )
 def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                             anova_chk, anova_var, anova_indeps, alpha,
-                            inter_chk, hybrid_chk, inter_x, inter_y, inter_line, inter_facet, ylim_min, ylim_max):
+                            inter_chk, hybrid_chk, spatial_chk,
+                            spatial_ylim_min, spatial_ylim_max,
+                            spatial_distinguish, spatial_jitter, spatial_heatmap, spatial_color_sig,
+                            inter_x, inter_y, inter_line, inter_facet, ylim_min, ylim_max):
     if not n_clicks: raise PreventUpdate
     try:
         import os, ast
         from performance_engine import (run_normality_test, run_anova_typ3, plot_interactive_dot_sig,
-                                        plot_interactive_interaction, plot_interactive_hybrid)
+                                        plot_interactive_interaction, plot_interactive_hybrid, run_spatial_proportions_analysis)
         csv_path = os.path.join(os.path.dirname(__file__), 'data', f'df_prot{prot}_performance.csv')
         if not os.path.exists(csv_path):
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Arquivo não encontrado: {csv_path}"
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Arquivo não encontrado: {csv_path}"
         df = pd.read_csv(csv_path)
         if prot == 'C' and 'Fase' in df.columns:
             df = df[df['Fase'] == 'Fase Execucao'].copy()
@@ -2345,11 +2568,27 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
         anova_style, anova_tbl = {'display': 'none'}, ""
         inter_style, inter_fig = {'display': 'none'}, go.Figure()
         hybrid_style, hybrid_fig = {'display': 'none'}, go.Figure()
+        spatial_style = {'display': 'none'}
+        spatial_x_fig = go.Figure()
+        spatial_x_hm_style = {'display': 'none'}
+        spatial_x_hm_fig = go.Figure()
+        spatial_x_stats = ""
+        spatial_y_fig = go.Figure()
+        spatial_y_hm_style = {'display': 'none'}
+        spatial_y_hm_fig = go.Figure()
+        spatial_y_stats = ""
         
         parsed_ylim = None
         if ylim_min is not None and ylim_max is not None:
             try:
                 parsed_ylim = (float(ylim_min), float(ylim_max))
+            except:
+                pass
+
+        parsed_spatial_ylim = None
+        if spatial_ylim_min is not None and spatial_ylim_max is not None:
+            try:
+                parsed_spatial_ylim = (float(spatial_ylim_min), float(spatial_ylim_max))
             except:
                 pass
 
@@ -2388,6 +2627,54 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                     )
                 ])
 
+        if 'yes' in (spatial_chk or []):
+            if prot in ['A', 'B']:
+                distinguish_s = 'yes' in (spatial_distinguish or [])
+                jitter_s = 'yes' in (spatial_jitter or [])
+                color_sig_s = 'yes' in (spatial_color_sig or [])
+                heatmap_s = 'yes' in (spatial_heatmap or [])
+                
+                fig_x, hm_x, st_x, fig_y, hm_y, st_y, sp_err = run_spatial_proportions_analysis(
+                    df, prot, alpha=alpha, ylim=parsed_spatial_ylim, 
+                    distinguish=distinguish_s, show_jitter=jitter_s, 
+                    color_sig=color_sig_s, show_heatmap=heatmap_s
+                )
+                spatial_style = {'display': 'block'}
+                if sp_err:
+                    spatial_x_stats = html.Div(sp_err, className="alert alert-danger")
+                else:
+                    def make_spatial_stats_card(st, var_label):
+                        if st.get('err'):
+                            return html.Div(st['err'], className="alert alert-warning")
+                        is_sig = st['is_sig']
+                        sig_badge = html.Span("✅ Estatisticamente Significativo", className="badge bg-success ms-2") if is_sig else html.Span("❌ Não Significativo (ns)", className="badge bg-danger ms-2")
+                        
+                        return html.Div([
+                            html.Div([
+                                html.Strong(f"Resultado do Teste-t de Welch ({var_label}):"),
+                                sig_badge
+                            ], className="d-flex justify-content-between align-items-center mb-2"),
+                            html.Ul([
+                                html.Li([html.B(f"{st['g1_name']}: "), f"Média = {st['g1_mean']:.4f} ± {st['g1_std']:.4f} (n = {st['g1_n']})"]),
+                                html.Li([html.B(f"{st['g2_name']}: "), f"Média = {st['g2_mean']:.4f} ± {st['g2_std']:.4f} (n = {st['g2_n']})"]),
+                                html.Li([html.B("Diferença de Médias (Δ): "), f"{st['delta']:+.4f}"]),
+                                html.Li([html.B("Estatística T: "), f"T = {st['t_stat']:.4f}"]),
+                                html.Li([html.B("p-valor: "), f"p = {st['p_val']:.4e} ({st['stars']}) [α = {alpha}]"])
+                            ], className="mb-0 ps-3 small")
+                        ])
+                    
+                    spatial_x_fig = fig_x
+                    spatial_x_stats = make_spatial_stats_card(st_x, "Proporção Espacial X")
+                    if heatmap_s:
+                        spatial_x_hm_style = {'display': 'block'}
+                        spatial_x_hm_fig = hm_x
+                        
+                    spatial_y_fig = fig_y
+                    spatial_y_stats = make_spatial_stats_card(st_y, "Proporção Espacial Y")
+                    if heatmap_s:
+                        spatial_y_hm_style = {'display': 'block'}
+                        spatial_y_hm_fig = hm_y
+
         if 'yes' in (inter_chk or []):
             facet = inter_facet if inter_facet and inter_facet != 'None' else None
             fig, err = plot_interactive_interaction(df, inter_x, inter_line, inter_y, facet, parsed_ylim, alpha=alpha)
@@ -2398,13 +2685,14 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
             fig_h, err_h = plot_interactive_hybrid(df, inter_x, inter_line, inter_y, facet, parsed_ylim, alpha=alpha)
             hybrid_style, hybrid_fig = {'display': 'block'}, fig_h
 
-        return norm_style, norm_out, anova_style, anova_tbl, inter_style, inter_fig, hybrid_style, hybrid_fig, ""
+        return norm_style, norm_out, anova_style, anova_tbl, inter_style, inter_fig, hybrid_style, hybrid_fig, spatial_style, spatial_x_fig, spatial_x_hm_style, spatial_x_hm_fig, spatial_x_stats, spatial_y_fig, spatial_y_hm_style, spatial_y_hm_fig, spatial_y_stats, ""
     except Exception as e:
         import traceback; traceback.print_exc()
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Erro Crítico: {str(e)}"
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Erro Crítico: {str(e)}"
 
 @app.callback(
-    [Output('perf-x-order-container', 'style'),
+    [Output('perf-anova-color-sig-check-container', 'style'),
+     Output('perf-x-order-container', 'style'),
      Output('perf-x-order-2-container', 'style'),
      Output('perf-x-order-3-container', 'style'),
      Output('perf-x-order-1', 'options'),
@@ -2430,9 +2718,11 @@ def update_x_order_options(protocol, val1, val2, val3):
     else:  # Protocol C
         all_factors = []
         
+    sig_style = {'display': 'block'} if protocol in ['A', 'B'] else {'display': 'none'}
+        
     if not all_factors:
         # Hide the whole container for Protocol C
-        return {'display': 'none'}, {'display': 'none'}, {'display': 'none'}, [], [], [], None, None, None
+        return sig_style, {'display': 'none'}, {'display': 'none'}, {'display': 'none'}, [], [], [], None, None, None
 
     # Determine styles
     container_style = {'display': 'block'}
@@ -2464,7 +2754,7 @@ def update_x_order_options(protocol, val1, val2, val3):
     if val3 not in rem3:
         val3 = rem3[0] if rem3 else None
 
-    return container_style, style2, style3, opt1, opt2, opt3, val1, val2, val3
+    return sig_style, container_style, style2, style3, opt1, opt2, opt3, val1, val2, val3
 
 
 @app.callback(
@@ -2477,9 +2767,10 @@ def update_x_order_options(protocol, val1, val2, val3):
      State('perf-alpha-input', 'value'), State('perf-heatmap-check', 'value'),
      State('perf-ylim-min', 'value'), State('perf-ylim-max', 'value'),
      State('perf-x-order-1', 'value'), State('perf-x-order-2', 'value'), State('perf-x-order-3', 'value'),
-     State('perf-anova-distinguish-check', 'value'), State('perf-anova-jitter-check', 'value')]
+     State('perf-anova-distinguish-check', 'value'), State('perf-anova-jitter-check', 'value'),
+     State('perf-anova-color-sig-check', 'value')]
 )
-def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk, ylim_min, ylim_max, order1, order2, order3, distinguish_val, jitter_val):
+def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk, ylim_min, ylim_max, order1, order2, order3, distinguish_val, jitter_val, color_sig_val):
     if not table_data: return go.Figure(), go.Figure(), {'display': 'none'}, "Execute a ANOVA primeiro."
     alpha = float(str(alpha).replace(',', '.')) if alpha else 0.05
     def get_p(r):
@@ -2528,7 +2819,8 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatma
 
     distinguish = 'yes' in (distinguish_val or [])
     show_jitter = 'yes' in (jitter_val or [])
-    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter)
+    color_sig = 'yes' in (color_sig_val or [])
+    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter, color_sig=color_sig)
     
     fig_hm = go.Figure()
     hm_style = {'display': 'none'}

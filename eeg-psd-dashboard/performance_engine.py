@@ -45,13 +45,23 @@ def run_anova_typ3(df, target, independents):
     except Exception as e:
         return None, str(e)
 
-def tukey_hsd_from_model(data, response_col, group_col, anova_table, alpha=0.05):
+def tukey_hsd_from_model(data, response_col, group_col, anova_table=None, alpha=0.05):
     """
     Post-hoc de Tukey usando o MSE residual do modelo fatorial.
     Compatível com statsmodels anova_lm tipo III.
+    Se anova_table for None, executa o Tukey padrão via statsmodels MultiComparison.
     """
     if anova_table is None:
-        return None
+        try:
+            sub = data[[group_col, response_col]].dropna()
+            mc = MultiComparison(sub[response_col], sub[group_col].astype(str))
+            res = mc.tukeyhsd(alpha=alpha)
+            res_df = pd.DataFrame(data=res._results_table.data[1:], columns=res._results_table.data[0])
+            res_df['stars'] = res_df['p-adj'].apply(lambda p: '***' if p < 0.001 else ('**' if p < 0.01 else ('*' if p < alpha else 'ns')))
+            return res_df
+        except Exception as e:
+            print(f"DEBUG TUKEY Fallback Error: {e}")
+            return None
     
     # anova_table can be a DataFrame or a list of dicts (from Dash DataTable)
     if isinstance(anova_table, list):
@@ -125,7 +135,7 @@ def tukey_hsd_from_model(data, response_col, group_col, anova_table, alpha=0.05)
             
     return pd.DataFrame(resultados)
 
-def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None, ylim=None, distinguish=False, ordered_active=None, show_jitter=True):
+def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None, ylim=None, distinguish=False, ordered_active=None, show_jitter=True, color_sig=False):
     """
     Creates an interactive dot plot with means, 95% CI, and significance brackets.
     """
@@ -298,9 +308,32 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                     levels[my_level].append((i1, i2))
                     y0 = 1.02 + step_paper * my_level
                     
+                    # Determine bracket color based on inter vs intra group comparisons
+                    bracket_color = "black"
+                    if color_sig:
+                        def get_group_part(cat_str):
+                            parts = cat_str.split('_')
+                            for p in parts:
+                                if p in ['CV', 'SV', 'CF', 'SF']:
+                                    return p
+                            return None
+                        
+                        group1 = get_group_part(g1)
+                        group2 = get_group_part(g2)
+                        
+                        if group1 and group2:
+                            is_group1_cv_cf = group1 in ['CV', 'CF']
+                            is_group2_cv_cf = group2 in ['CV', 'CF']
+                            if is_group1_cv_cf != is_group2_cv_cf:
+                                bracket_color = '#dc3545'  # Red for inter-group
+                            else:
+                                bracket_color = '#198754'  # Green for intra-group
+                        else:
+                            bracket_color = '#333333'  # Dark grey if no group factor is involved
+                    
                     fig.add_shape(type="path",
                         path=f"M {i1} {y0-cap_paper} L {i1} {y0} L {i2} {y0} L {i2} {y0-cap_paper}",
-                        line=dict(color="black", width=1.5),
+                        line=dict(color=bracket_color, width=1.5),
                         xref="x", yref="paper"
                     )
                     
@@ -309,11 +342,28 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                         y=y0 + 0.012,
                         text=stars,
                         showarrow=False,
-                        font=dict(size=14, color="black"),
+                        font=dict(size=14, color=bracket_color),
                         xref="x", yref="paper"
                     )
         except Exception as e:
             print(f"Tukey Error: {e}")
+
+    # Add legend entries for bracket colors if color_sig is enabled and there are significant pairs
+    if show_sig_bars and color_sig and ('sig_pairs' in locals()) and sig_pairs:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='lines',
+            line=dict(color='#dc3545', width=2),
+            name="Sig. Entre Grupos (CV/CF ↔ SV/SF)",
+            showlegend=True
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='lines',
+            line=dict(color='#198754', width=2),
+            name="Sig. Intra-Grupo (CV ↔ CV / SV ↔ SV)",
+            showlegend=True
+        ))
 
     # Set dynamic margins and figure height to keep the plot area height constant at 400px
     num_levels = len(levels) if ('levels' in locals() and levels) else 0
@@ -648,5 +698,89 @@ def plot_interactive_significance_heatmap(data, response_col, group_col, anova_t
     )
     
     return fig, None
+
+
+def run_spatial_proportions_analysis(df, protocol, alpha=0.05, ylim=None, distinguish=False, show_jitter=True, color_sig=False, show_heatmap=False):
+    """
+    Realiza teste estatístico (Teste-t de Welch) e plota dotplots com IC95% e barras de significância
+    para Proporção Espacial X e Proporção Espacial Y entre os subgrupos experimentais (CV vs SV para Prot A, CF vs SF para Prot B).
+    """
+    from scipy import stats
+    if protocol not in ['A', 'B']:
+        return None, None, None, None, None, None, "Teste de proporções espaciais disponível apenas para os Protocolos A e B."
+        
+    group_col = 'grupo'
+    if group_col not in df.columns:
+        return None, None, None, None, None, None, f"Coluna '{group_col}' não encontrada no dataset."
+        
+    order = ['CV', 'SV'] if protocol == 'A' else ['CF', 'SF']
+    df_clean = df[df[group_col].isin(order)].copy()
+    
+    figs = {}
+    heatmaps = {}
+    stats_data = {}
+    
+    for var_name, var_label in [('Proporção espacial x', 'Proporção Espacial X'), ('Proporção espacial y', 'Proporção Espacial Y')]:
+        if var_name not in df_clean.columns:
+            figs[var_name] = go.Figure()
+            heatmaps[var_name] = go.Figure()
+            stats_data[var_name] = {'err': f"Coluna '{var_label}' não encontrada."}
+            continue
+            
+        sub_df = df_clean[[group_col, var_name]].dropna()
+        g1_data = sub_df[sub_df[group_col] == order[0]][var_name]
+        g2_data = sub_df[sub_df[group_col] == order[1]][var_name]
+        
+        if len(g1_data) < 2 or len(g2_data) < 2:
+            figs[var_name] = go.Figure()
+            heatmaps[var_name] = go.Figure()
+            stats_data[var_name] = {'err': "Dados insuficientes para teste estatístico (n < 2)."}
+            continue
+            
+        t_stat, p_val = stats.ttest_ind(g1_data, g2_data, equal_var=False)
+        is_sig = bool(p_val < alpha)
+        stars = '***' if p_val < 0.001 else ('**' if p_val < 0.01 else ('*' if p_val < alpha else 'ns'))
+        
+        # Plot interactive dot plot
+        fig, _, _ = plot_interactive_dot_sig(
+            sub_df, 
+            x_col=group_col, 
+            y_col=var_name, 
+            order=order, 
+            alpha=alpha, 
+            title=f"{var_label} — {order[0]} vs {order[1]} (Prot {protocol})",
+            ylim=ylim, 
+            distinguish=distinguish, 
+            ordered_active=[group_col],
+            show_jitter=show_jitter, 
+            color_sig=color_sig
+        )
+        figs[var_name] = fig
+        
+        if show_heatmap:
+            fig_hm, err_hm = plot_interactive_significance_heatmap(sub_df, var_name, group_col, alpha=alpha)
+            heatmaps[var_name] = fig_hm if not err_hm else go.Figure()
+        else:
+            heatmaps[var_name] = go.Figure()
+        
+        stats_data[var_name] = {
+            'g1_name': order[0],
+            'g1_mean': float(g1_data.mean()),
+            'g1_std': float(g1_data.std()),
+            'g1_n': int(len(g1_data)),
+            'g2_name': order[1],
+            'g2_mean': float(g2_data.mean()),
+            'g2_std': float(g2_data.std()),
+            'g2_n': int(len(g2_data)),
+            't_stat': float(t_stat),
+            'p_val': float(p_val),
+            'is_sig': is_sig,
+            'stars': stars,
+            'delta': float(g1_data.mean() - g2_data.mean()),
+            'err': None
+        }
+        
+    return figs['Proporção espacial x'], heatmaps['Proporção espacial x'], stats_data['Proporção espacial x'], figs['Proporção espacial y'], heatmaps['Proporção espacial y'], stats_data['Proporção espacial y'], None
+
 
 

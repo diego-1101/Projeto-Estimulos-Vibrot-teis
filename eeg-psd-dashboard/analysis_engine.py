@@ -149,14 +149,14 @@ def compute_embeddings(X, Y_continuous, Y_labels, method, n_components):
                  'chisq': cx_stats['chisq'].tolist(),
                  'eigenval': cx_stats['eigenval'][:c_dims].tolist(),
             }
-            # Compute explained variance ratio from canonical scores' variance
-            canon_scores = cx_stats['canon'][:, :c_dims]
-            var_per_cd = np.nanvar(canon_scores, axis=0)
-            var_sum = var_per_cd.sum()
-            if var_sum > 0:
-                stats['CDA_X']['explained_variance_ratio'] = (var_per_cd / var_sum).tolist()
+            # Compute explained variance ratio from eigenvalues
+            eigenvals = np.array(cx_stats['eigenval'])
+            eigenvals = np.clip(eigenvals, 0, None)
+            eig_sum = eigenvals.sum()
+            if eig_sum > 0:
+                stats['CDA_X']['explained_variance_ratio'] = (eigenvals / eig_sum).tolist()
             else:
-                stats['CDA_X']['explained_variance_ratio'] = [0.0] * c_dims
+                stats['CDA_X']['explained_variance_ratio'] = [0.0] * len(eigenvals)
             
         if not Y_scaled.empty:
             try:
@@ -173,14 +173,14 @@ def compute_embeddings(X, Y_continuous, Y_labels, method, n_components):
                      'chisq': cy_stats['chisq'].tolist(),
                      'eigenval': cy_stats['eigenval'][:c_dims_y].tolist(),
                 }
-                # Compute explained variance ratio for Y from canonical scores' variance
-                canon_scores_y = cy_stats['canon'][:, :c_dims_y]
-                var_per_cd_y = np.nanvar(canon_scores_y, axis=0)
-                var_sum_y = var_per_cd_y.sum()
-                if var_sum_y > 0:
-                    stats['CDA_Y']['explained_variance_ratio'] = (var_per_cd_y / var_sum_y).tolist()
+                # Compute explained variance ratio for Y from eigenvalues
+                eigenvals_y = np.array(cy_stats['eigenval'])
+                eigenvals_y = np.clip(eigenvals_y, 0, None)
+                eig_sum_y = eigenvals_y.sum()
+                if eig_sum_y > 0:
+                    stats['CDA_Y']['explained_variance_ratio'] = (eigenvals_y / eig_sum_y).tolist()
                 else:
-                    stats['CDA_Y']['explained_variance_ratio'] = [0.0] * c_dims_y
+                    stats['CDA_Y']['explained_variance_ratio'] = [0.0] * len(eigenvals_y)
             except Exception as e:
                 # E.g. singular matrix in Y subspace, which might be tiny or collinear
                 print(f"Warning: CDA failed on Y space: {e}")

@@ -1,4 +1,4 @@
-Desempenho,Acuracia,Acuracia,Similaridade,Similaridade,Especificidade,Proporção espacial x,Proporção espacial y,Desempenho_ponderado,Complexidade,Complexidade,Complexidade,grupo,grupo,Overlap
+﻿Desempenho,Acuracia,Acuracia,Similaridade,Similaridade,Especificidade,Proporção espacial x,Proporção espacial y,Desempenho_ponderado,Complexidade,Complexidade,Complexidade,grupo,grupo,Overlap
 0.7399687312910573,0.8125,0.665895061728395,0.8074061938731719,0.7877645510886303,0.6,0.8269230769230769,0.8149568552253116,0.6074699051620452,4,CV_FÃ¡cil,CV_FÃ¡cil_Lento,CV,CV_Lento,0.0
 0.6769199273037253,0.5625,0.665895061728395,0.8968312104826046,0.7877645510886303,0.5714285714285714,0.8057692307692308,0.5867689357622243,0.4713184172280678,4,CV_FÃ¡cil,CV_FÃ¡cil_Lento,CV,CV_Lento,0.0
 0.7812252633775151,0.75,0.665895061728395,0.7936757901325451,0.7877645510886303,0.8,0.7134615384615385,0.5771812080536913,0.5041413597863199,4,CV_FÃ¡cil,CV_FÃ¡cil_Lento,CV,CV_Lento,0.0
