@@ -1236,13 +1236,13 @@ def get_performance_layout():
                     value=[],
                     className="mb-2"
                 ),
+                dcc.Checklist(
+                    id='perf-hybrid-check',
+                    options=[{'label': ' Plotar Gráfico Híbrido (Dispersão + Interação)', 'value': 'yes'}],
+                    value=[],
+                    className="mb-2"
+                ),
             ]),
-            dcc.Checklist(
-                id='perf-hybrid-check',
-                options=[{'label': ' Plotar Gráfico Híbrido (Dispersão + Interação)', 'value': 'yes'}],
-                value=[],
-                className="mb-2"
-            ),
             html.Div(id='perf-interaction-controls', style={'display': 'none'}, children=[
                 html.Label("Eixo X", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-x', options=[], className="mb-2 dash-dropdown"),

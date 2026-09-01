@@ -397,7 +397,8 @@ def plot_interactive_interaction(df, x_col, line_col, y_col, facet_col=None, yli
     if facet_col:
         group_cols.append(facet_col)
     
-    data = df[group_cols + [y_col]].dropna().copy()
+    cols_to_extract = list(dict.fromkeys(group_cols + [y_col]))
+    data = df[cols_to_extract].dropna().copy()
     if data.empty:
         return go.Figure(), "Sem dados válidos para plotar."
         
@@ -447,7 +448,8 @@ def plot_interactive_hybrid(df, x_col, line_col, y_col, facet_col=None, ylim=Non
     else:
         facet_col = None
         
-    data = df[group_cols + [y_col]].dropna().copy()
+    cols_to_extract = list(dict.fromkeys(group_cols + [y_col]))
+    data = df[cols_to_extract].dropna().copy()
     if data.empty:
         return go.Figure(), "Sem dados válidos para plotar."
 
