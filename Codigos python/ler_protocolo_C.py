@@ -103,11 +103,9 @@ protC_df = transformar_protC_mat_em_df(protocolo = ProtC, id = id)
 """
 
 # Carregando os gabaritos
-gabarito = pd.read_csv('Gabaritos\gab_seq_completa_converted.csv')
-gabarito_simplificado = pd.read_csv('Gabaritos\gab_seq_converted.csv')
+gabarito = pd.read_csv('Gabaritos\gabarito_protocolo_C.csv')
 for i in gabarito.columns:
     gabarito[i][0] = ast.literal_eval(gabarito[i][0])
-    gabarito_simplificado[i][0] = ast.literal_eval(gabarito_simplificado[i][0])
 
 
 #%% 
