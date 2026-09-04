@@ -157,12 +157,30 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
 
     fig = go.Figure()
 
+    # Funções de mapeamento semântico para exibição nos gráficos
+    def format_factor_display(factor_name, val):
+        s_val = str(val).replace('.0', '').strip()
+        if factor_name == 'Complexidade':
+            comp_labels = {'1': 'Fácil', '4': 'Fácil', '2': 'Médio', '6': 'Médio', '3': 'Difícil', '8': 'Difícil'}
+            return comp_labels.get(s_val, s_val)
+        return s_val
+
+    def format_cat_display(cat_str, ordered_factors=None, fallback_col=None):
+        parts = str(cat_str).split('_')
+        formatted = []
+        for i, p in enumerate(parts):
+            f = ordered_factors[i] if (ordered_factors and i < len(ordered_factors)) else fallback_col
+            formatted.append(format_factor_display(f, p))
+        return "_".join(formatted)
+
     # Base Box/Strip plot for jitter points (always add the skeleton trace to anchor the category axis, toggling points visibility)
     for lvl in order:
         lvl_data = data[data[x_col] == lvl]
+        lvl_disp = format_cat_display(str(lvl), ordered_active, x_col)
         fig.add_trace(go.Box(
+            x=[lvl_disp] * len(lvl_data),
             y=lvl_data[y_col],
-            name=str(lvl),
+            name=lvl_disp,
             boxpoints='all' if show_jitter else False,
             jitter=0.5,
             pointpos=0,
@@ -176,13 +194,23 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
     # Define dynamic visual patterns for distinction
     COLORS = {
         'grupo': {'CV': '#0d6efd', 'SV': '#dc3545', 'CF': '#0d6efd', 'SF': '#dc3545'},
-        'Complexidade': {'4': '#9b59b6', '6': '#2ecc71', '8': '#e67e22', 4: '#9b59b6', 6: '#2ecc71', 8: '#e67e22'},
+        'Complexidade': {
+            'Fácil': '#2ecc71', 'Médio': '#f39c12', 'Difícil': '#e74c3c',
+            '1': '#2ecc71', 1: '#2ecc71', '4': '#2ecc71', 4: '#2ecc71',
+            '2': '#f39c12', 2: '#f39c12', '6': '#f39c12', 6: '#f39c12',
+            '3': '#e74c3c', 3: '#e74c3c', '8': '#e74c3c', 8: '#e74c3c'
+        },
         'Overlap': {'0.0': '#1abc9c', '0.25': '#bcbd22', '0.5': '#d62728', '1.0': '#9467bd', 0.0: '#1abc9c', 0.25: '#bcbd22', 0.5: '#d62728', 1.0: '#9467bd'}
     }
     
     SYMBOLS = {
         'grupo': {'CV': 'circle', 'SV': 'diamond', 'CF': 'circle', 'SF': 'diamond'},
-        'Complexidade': {'4': 'circle', '6': 'square', '8': 'triangle-up', 4: 'circle', 6: 'square', 8: 'triangle-up'},
+        'Complexidade': {
+            'Fácil': 'circle', 'Médio': 'square', 'Difícil': 'triangle-up',
+            '1': 'circle', 1: 'circle', '4': 'circle', 4: 'circle',
+            '2': 'square', 2: 'square', '6': 'square', 6: 'square',
+            '3': 'triangle-up', 3: 'triangle-up', '8': 'triangle-up', 8: 'triangle-up'
+        },
         'Overlap': {'0.0': 'circle', '0.25': 'square', '0.5': 'diamond', '1.0': 'cross', 0.0: 'circle', 0.25: 'square', 0.5: 'diamond', 1.0: 'cross'}
     }
 
@@ -196,11 +224,12 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
         for val1 in f1_vals:
             str_val = str(val1).replace('.0', '')
             color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str_val, 'blue'))
+            disp_val1 = format_factor_display(f1_name, str_val)
             fig.add_trace(go.Scatter(
                 x=[None], y=[None],
                 mode='markers',
                 marker=dict(color=color, size=10, symbol='circle'),
-                name=f"{f1_name}: {str_val}",
+                name=f"{f1_name}: {disp_val1}",
                 showlegend=True
             ))
             
@@ -210,17 +239,19 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
             for val2 in f2_vals:
                 str_val = str(val2).replace('.0', '')
                 symbol = SYMBOLS.get(f2_name, {}).get(val2, SYMBOLS.get(f2_name, {}).get(str_val, 'circle'))
+                disp_val2 = format_factor_display(f2_name, str_val)
                 fig.add_trace(go.Scatter(
                     x=[None], y=[None],
                     mode='markers',
                     marker=dict(color='gray', size=10, symbol=symbol),
-                    name=f"{f2_name}: {str_val}",
+                    name=f"{f2_name}: {disp_val2}",
                     showlegend=True
                 ))
                 
         # 3. Plot data points as individual traces with showlegend=False
         for _, row in g.iterrows():
             cat = str(row[x_col])
+            cat_disp = format_cat_display(cat, ordered_active, x_col)
             parts = cat.split('_')
             
             # Determine color from 1st factor
@@ -234,18 +265,19 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                 symbol = SYMBOLS.get(f2_name, {}).get(val2, SYMBOLS.get(f2_name, {}).get(str(val2), 'circle'))
                 
             fig.add_trace(go.Scatter(
-                x=[cat],
+                x=[cat_disp],
                 y=[row['mean']],
                 error_y=dict(type='data', array=[row['ci95']], visible=True, color=color, thickness=2, width=6),
                 mode='markers',
                 marker=dict(color=color, size=10, symbol=symbol),
                 showlegend=False,
-                hovertemplate=f'Grupo: {cat}<br>Média: %{{y:.3f}}<br>IC: ±%{{error_y.array:.3f}}<extra></extra>'
+                hovertemplate=f'Grupo: {cat_disp}<br>Média: %{{y:.3f}}<br>IC: ±%{{error_y.array:.3f}}<extra></extra>'
             ))
     else:
         # Default behavior: single blue trace
+        x_disp = [format_cat_display(str(c), ordered_active, x_col) for c in g[x_col]]
         fig.add_trace(go.Scatter(
-            x=g[x_col].astype(str),
+            x=x_disp,
             y=g['mean'],
             error_y=dict(type='data', array=g['ci95'], visible=True, color='blue', thickness=2, width=6),
             mode='markers',
@@ -277,14 +309,19 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                         # Generate stars if not present
                         stars = row.get('stars', '***' if p_val < 0.001 else ('**' if p_val < 0.01 else '*'))
                         sig_pairs.append((str(row['group1']), str(row['group2']), stars, p_val))
-                        sig_results.append({'group1': row['group1'], 'group2': row['group2'], 'p-adj': p_val, 'stars': stars})
+                        g1_disp = format_cat_display(str(row['group1']), ordered_active, x_col)
+                        g2_disp = format_cat_display(str(row['group2']), ordered_active, x_col)
+                        sig_results.append({'group1': g1_disp, 'group2': g2_disp, 'p-adj': p_val, 'stars': stars})
 
             # Draw brackets using paper coordinates to avoid altering the y-axis data range
             if sig_pairs:
                 step_paper = 0.04
                 cap_paper = 0.012
                 
-                x_pos = {str(lvl): i for i, lvl in enumerate(order)}
+                x_pos = {}
+                for i, lvl in enumerate(order):
+                    x_pos[str(lvl)] = i
+                    x_pos[format_cat_display(str(lvl), ordered_active, x_col)] = i
                 
                 for g1, g2, stars, _ in sig_pairs:
                     if g1 not in x_pos or g2 not in x_pos: continue
@@ -372,6 +409,13 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
 
     if ylim and isinstance(ylim, (list, tuple)) and len(ylim) == 2:
         fig.update_yaxes(range=ylim)
+
+    order_disp = [format_cat_display(str(lvl), ordered_active, x_col) for lvl in order]
+    fig.update_xaxes(
+        type='category',
+        categoryorder='array',
+        categoryarray=order_disp
+    )
 
     fig.update_layout(
         title=dict(
@@ -678,10 +722,17 @@ def plot_interactive_significance_heatmap(data, response_col, group_col, anova_t
         font_size = 7
         tick_size = 8
 
+    def map_comp_disp(g_str):
+        comp_labels = {'1': 'Fácil', '4': 'Fácil', '2': 'Médio', '6': 'Médio', '3': 'Difícil', '8': 'Difícil'}
+        parts = str(g_str).split('_')
+        return "_".join([comp_labels.get(p.replace('.0', ''), p) for p in parts])
+        
+    grupos_disp = [map_comp_disp(g) for g in grupos]
+
     fig = go.Figure(data=go.Heatmap(
         z=log_p,
-        x=grupos,
-        y=grupos,
+        x=grupos_disp,
+        y=grupos_disp,
         text=text_matrix,
         customdata=hover_text_matrix,
         texttemplate="%{text}",

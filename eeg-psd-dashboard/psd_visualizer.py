@@ -25,29 +25,45 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
     # Pre-calculate frequency array mapping
     freq_vector = np.linspace(0, 1000/2, 1025)[:110]
     
+    comp_map = {'1': 'Fácil', '2': 'Médio', '3': 'Difícil', '4': 'Fácil', '6': 'Médio', '8': 'Difícil'}
+
+    def get_comp_mapped_series(df):
+        raw = df.get('Complexidade', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+        return raw.map(lambda x: comp_map.get(str(x), str(x)))
+
     # Helper to resolve columns and combinations dynamically
     def get_resolved_series(df, col_name):
         if not col_name or col_name == 'none':
             return None
+        if col_name == 'Complexidade':
+            return get_comp_mapped_series(df)
         if col_name in df.columns:
             return df[col_name].astype(str).str.replace(r'\.0$', '', regex=True)
         
         # Combinations logic
         if col_name == 'grupo_complexity':
-            comp_s = df.get('Complexidade', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+            comp_s = get_comp_mapped_series(df)
             return df['grupo'].astype(str) + '_' + comp_s
         if col_name == 'grupo_overlap':
             over_s = df.get('Overlap', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
             return df['grupo'].astype(str) + '_' + over_s
         if col_name == 'complexity_overlap':
-            comp_s = df.get('Complexidade', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+            comp_s = get_comp_mapped_series(df)
             over_s = df.get('Overlap', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
             return comp_s + '_' + over_s
         if col_name == 'all':
-            comp_s = df.get('Complexidade', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+            comp_s = get_comp_mapped_series(df)
             over_s = df.get('Overlap', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
             return df['grupo'].astype(str) + '_' + comp_s + '_' + over_s
         return None
+
+    def sort_level_key(item):
+        item_s = str(item)
+        rank = 99
+        if 'Fácil' in item_s: rank = 1
+        elif 'Médio' in item_s: rank = 2
+        elif 'Difícil' in item_s: rank = 3
+        return (rank, item_s)
 
     # 1. Stratification (Rows) logic
     resolved_strat = get_resolved_series(df_meta, stratify_by)
@@ -58,7 +74,7 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
     else:
         stratify_col = 'resolved_strat_col'
         df_meta[stratify_col] = resolved_strat
-        row_groups = sorted(df_meta[stratify_col].unique().tolist())
+        row_groups = sorted(df_meta[stratify_col].unique().tolist(), key=sort_level_key)
 
     # 2. Overlay (Colors) logic
     resolved_over = get_resolved_series(df_meta, overlay_by)
@@ -68,7 +84,7 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
     else:
         overlay_col = 'resolved_over_col'
         df_meta[overlay_col] = resolved_over
-        color_groups = sorted(df_meta[overlay_col].unique().tolist())
+        color_groups = sorted(df_meta[overlay_col].unique().tolist(), key=sort_level_key)
 
     # Expanded 24 color palette for combined factors overlays
     palette = [

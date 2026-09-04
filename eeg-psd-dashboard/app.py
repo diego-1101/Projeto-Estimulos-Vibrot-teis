@@ -106,7 +106,9 @@ def build_supervision_labels(meta, protocol, color_by_mode):
     # Assemble series
     try:
         group = meta['grupo'].astype(str)
-        comp = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+        raw_comp = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+        comp_map = {'1': 'Fácil', '2': 'Médio', '3': 'Difícil', '4': 'Fácil', '6': 'Médio', '8': 'Difícil'}
+        comp = raw_comp.map(lambda x: comp_map.get(str(x), str(x)))
         over = meta.get('Overlap', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
         
         if mode == 'group':
@@ -114,7 +116,7 @@ def build_supervision_labels(meta, protocol, color_by_mode):
             symbol_s = group
             cluster_s = group
         elif mode == 'complexity':
-            color_s = 'C' + comp
+            color_s = comp
             symbol_s = color_s
             cluster_s = color_s
         elif mode == 'overlap':
@@ -122,21 +124,21 @@ def build_supervision_labels(meta, protocol, color_by_mode):
             symbol_s = color_s
             cluster_s = color_s
         elif mode == 'group_comp':
-            color_s = 'C' + comp
+            color_s = comp
             symbol_s = group
-            cluster_s = group + '_C' + comp
+            cluster_s = group + '_' + comp
         elif mode == 'group_overlap':
             color_s = 'O' + over
             symbol_s = group
             cluster_s = group + '_O' + over
         elif mode == 'comp_overlap':
             color_s = 'O' + over
-            symbol_s = 'C' + comp
-            cluster_s = 'C' + comp + '_O' + over
+            symbol_s = comp
+            cluster_s = comp + '_O' + over
         elif mode == 'all':
-            color_s = 'C' + comp + '_O' + over
+            color_s = comp + '_O' + over
             symbol_s = group
-            cluster_s = group + '_C' + comp + '_O' + over
+            cluster_s = group + '_' + comp + '_O' + over
         
         color_labels = color_s.tolist()
         symbol_labels = symbol_s.tolist()
@@ -495,13 +497,22 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         color_map = None
         if color_by == 'group' and protocol in ['A', 'B']:
             color_map = {'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'}
+        elif color_by == 'complexity':
+            color_map = {'Fácil': '#2ecc71', 'Médio': '#f39c12', 'Difícil': '#e74c3c'}
             
-        symbol_map = {'CV': 'circle', 'SV': 'square', 'CF': 'circle', 'SF': 'square'}
+        symbol_map = {
+            'CV': 'circle', 'SV': 'square', 'CF': 'circle', 'SF': 'square',
+            'Fácil': 'circle', 'Médio': 'square', 'Difícil': 'triangle-up'
+        }
             
         params = {
              'color': 'color_label',
              'symbol': 'symbol_label',
              'symbol_map': symbol_map,
+             'category_orders': {
+                 'color_label': ['Fácil', 'Médio', 'Difícil', 'CV', 'SV', 'CF', 'SF'],
+                 'symbol_label': ['Fácil', 'Médio', 'Difícil', 'CV', 'SV', 'CF', 'SF']
+             },
              'hover_data': hover_cols,
              'title': f"{method} - {domain.upper()} - {title_suffix}"
         }
