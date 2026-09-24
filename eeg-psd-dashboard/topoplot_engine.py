@@ -332,6 +332,34 @@ def get_channel_reference_base64():
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
+def format_panel_label(p, multiline=False, short=False):
+    """
+    Formats a descriptive, standardized label for a topoplot panel.
+    p is a dict with keys: 'protocol', 'fase', 'group', 'is_normalized', 'is_baseline'
+    """
+    prot = p.get('protocol', 'A')
+    norm = " Normalizado" if p.get('is_normalized') else ""
+    norm_short = " Norm" if p.get('is_normalized') else ""
+    fase = p.get('fase', '')
+    fase_str = fase.capitalize() if fase else ""
+    group = p.get('group', '')
+    
+    if short:
+        grp_str = f"({group})" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
+        return f"{prot}{grp_str}"
+        
+    group_str = f" - Grupo {group}" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
+    group_short = f" - {group}" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
+    
+    if multiline:
+        line1 = f"Prot. {prot}{norm_short}"
+        line2 = f"({fase_str}{group_short})" if (fase_str or group_short) else ""
+        return f"{line1}\n{line2}" if line2 else line1
+    else:
+        info = f" ({fase_str}{group_str})" if (fase_str or group_str) else ""
+        return f"Protocolo {prot}{norm}{info}"
+
+
 def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, band_limits=None):
     loaded_dfs = []
     t_cols = []
@@ -368,7 +396,7 @@ def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, ba
     n_cols = len(panels_data)
     n_rows = len(BANDS_ORDER)
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.5 * n_cols, 3.5 * n_rows), facecolor='none')
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.8 * n_cols, 3.8 * n_rows), facecolor='none')
     
     if n_cols == 1:
         axes = np.expand_dims(axes, axis=1)
@@ -401,9 +429,10 @@ def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, ba
                 
             im, _ = mne.viz.plot_topomap(data, info, axes=ax, show=False, contours=0, cmap='RdBu_r', vlim=(b_vmin, b_vmax))
             
-            # Label columns on the first row
+            # Label columns on the first row with descriptive names and generous padding
             if row_idx == 0:
-                ax.set_title(f"Painel {col_idx + 1}", fontsize=12, pad=10, weight='bold')
+                col_title = format_panel_label(panels_data[col_idx], multiline=True)
+                ax.set_title(col_title, fontsize=11, pad=16, weight='bold')
                 
             # Label rows on the left of the first column
             if col_idx == 0:
@@ -412,6 +441,7 @@ def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, ba
                         
             fig.colorbar(im, ax=ax, orientation='horizontal', fraction=0.046, pad=0.15)
             
+    plt.subplots_adjust(top=0.92, hspace=0.35, wspace=0.25)
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
     plt.close(fig)

@@ -25,7 +25,8 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
     # Pre-calculate frequency array mapping
     freq_vector = np.linspace(0, 1000/2, 1025)[:110]
     
-    comp_map = {'1': 'Fácil', '2': 'Médio', '3': 'Difícil', '4': 'Fácil', '6': 'Médio', '8': 'Difícil'}
+    comp_map = {'1': 'Easy', '2': 'Medium', '3': 'Hard', '4': 'Easy', '6': 'Medium', '8': 'Hard',
+                'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'}
 
     def get_comp_mapped_series(df):
         raw = df.get('Complexidade', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
@@ -60,9 +61,9 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
     def sort_level_key(item):
         item_s = str(item)
         rank = 99
-        if 'Fácil' in item_s: rank = 1
-        elif 'Médio' in item_s: rank = 2
-        elif 'Difícil' in item_s: rank = 3
+        if 'Easy' in item_s or 'Fácil' in item_s: rank = 1
+        elif 'Medium' in item_s or 'Médio' in item_s: rank = 2
+        elif 'Hard' in item_s or 'Difícil' in item_s: rank = 3
         return (rank, item_s)
 
     # 1. Stratification (Rows) logic

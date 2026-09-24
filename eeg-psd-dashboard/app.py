@@ -107,7 +107,8 @@ def build_supervision_labels(meta, protocol, color_by_mode):
     try:
         group = meta['grupo'].astype(str)
         raw_comp = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
-        comp_map = {'1': 'Fácil', '2': 'Médio', '3': 'Difícil', '4': 'Fácil', '6': 'Médio', '8': 'Difícil'}
+        comp_map = {'1': 'Easy', '2': 'Medium', '3': 'Hard', '4': 'Easy', '6': 'Medium', '8': 'Hard',
+                    'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'}
         comp = raw_comp.map(lambda x: comp_map.get(str(x), str(x)))
         over = meta.get('Overlap', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
         
@@ -498,11 +499,11 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         if color_by == 'group' and protocol in ['A', 'B']:
             color_map = {'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'}
         elif color_by == 'complexity':
-            color_map = {'Fácil': '#2ecc71', 'Médio': '#f39c12', 'Difícil': '#e74c3c'}
+            color_map = {'Easy': '#2ecc71', 'Medium': '#f39c12', 'Hard': '#e74c3c'}
             
         symbol_map = {
             'CV': 'circle', 'SV': 'square', 'CF': 'circle', 'SF': 'square',
-            'Fácil': 'circle', 'Médio': 'square', 'Difícil': 'triangle-up'
+            'Easy': 'circle', 'Medium': 'square', 'Hard': 'triangle-up'
         }
             
         params = {
@@ -510,8 +511,8 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
              'symbol': 'symbol_label',
              'symbol_map': symbol_map,
              'category_orders': {
-                 'color_label': ['Fácil', 'Médio', 'Difícil', 'CV', 'SV', 'CF', 'SF'],
-                 'symbol_label': ['Fácil', 'Médio', 'Difícil', 'CV', 'SV', 'CF', 'SF']
+                 'color_label': ['Easy', 'Medium', 'Hard', 'CV', 'SV', 'CF', 'SF'],
+                 'symbol_label': ['Easy', 'Medium', 'Hard', 'CV', 'SV', 'CF', 'SF']
              },
              'hover_data': hover_cols,
              'title': f"{method} - {domain.upper()} - {title_suffix}"
@@ -1161,7 +1162,7 @@ def get_performance_layout():
                 dcc.Checklist(
                     id='perf-anova-jitter-check',
                     options=[{'label': ' Exibir pontos de dispersão', 'value': 'yes'}],
-                    value=['yes'],
+                    value=[],
                     className="mb-2 text-muted",
                     style={'fontSize': '0.9em'}
                 ),
@@ -1178,7 +1179,17 @@ def get_performance_layout():
                     dcc.Checklist(
                         id='perf-anova-color-sig-check',
                         options=[{'label': ' Colorir barras de significância por tipo de comparação', 'value': 'yes'}],
-                        value=[],
+                        value=['yes'],
+                        className="mb-2 text-muted",
+                        style={'fontSize': '0.9em'}
+                    )
+                ]),
+                
+                html.Div(id='perf-anova-color-markers-check-container', children=[
+                    dcc.Checklist(
+                        id='perf-anova-color-markers-check',
+                        options=[{'label': ' Colorir markers por grupo', 'value': 'yes'}],
+                        value=['yes'],
                         className="mb-2 text-muted",
                         style={'fontSize': '0.9em'}
                     )
@@ -1212,7 +1223,7 @@ def get_performance_layout():
                     dcc.Checklist(
                         id='perf-spatial-jitter-check',
                         options=[{'label': ' Exibir pontos de dispersão', 'value': 'yes'}],
-                        value=['yes'],
+                        value=[],
                         className="mb-2 text-muted",
                         style={'fontSize': '0.9em'}
                     ),
@@ -1227,7 +1238,16 @@ def get_performance_layout():
                         dcc.Checklist(
                             id='perf-spatial-color-sig-check',
                             options=[{'label': ' Colorir barras de significância por tipo de comparação', 'value': 'yes'}],
-                            value=[],
+                            value=['yes'],
+                            className="mb-2 text-muted",
+                            style={'fontSize': '0.9em'}
+                        )
+                    ]),
+                    html.Div(id='perf-spatial-color-markers-check-container', children=[
+                        dcc.Checklist(
+                            id='perf-spatial-color-markers-check',
+                            options=[{'label': ' Colorir markers por grupo', 'value': 'yes'}],
+                            value=['yes'],
                             className="mb-2 text-muted",
                             style={'fontSize': '0.9em'}
                         )
@@ -2260,14 +2280,9 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
             vmin=common_vmin, vmax=common_vmax, band_limits=band_limits
         )
         
-        # Build panel description titles
-        title_norm_p1 = " Normalizado" if panels_data[0]['is_normalized'] else ""
-        panel_titles = []
-        for idx, p in enumerate(panels_data):
-            fase_str = p['fase'].capitalize() if p['fase'] else "N/A"
-            title_group = f" - Grupo {p['group']}" if p['protocol'] in ['A', 'B'] else ""
-            panel_titles.append(f"Painel {idx+1}: {p['protocol']}{title_norm_p1} ({fase_str}{title_group})")
-            
+        # Build panel description titles using format_panel_label
+        from topoplot_engine import format_panel_label
+        panel_titles = [format_panel_label(p) for p in panels_data]
         compare_title = "Modo Comparação: " + " VS ".join(panel_titles)
         
         from dash import html
@@ -2341,11 +2356,17 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                 messages.append(f"Panel {i+1} Rendered Successfully.")
                 
                 # Button next to Quick Guide
-                btn_label = f"📥 Salvar Painel {i+1}" if panels > 1 else "📥 Salvar Topoplot"
+                panel_info = {
+                    'protocol': real_prot, 'fase': fase, 'group': group,
+                    'is_normalized': is_norm, 'is_baseline': is_baseline
+                }
+                from topoplot_engine import format_panel_label
+                short_p = format_panel_label(panel_info, short=True)
+                btn_label = f"📥 Salvar {short_p}" if panels > 1 else "📥 Salvar Topoplot"
                 download_buttons.append(html.Div([
-                    html.Button(btn_label, id={'type': 'topo-download-btn', 'index': f"panel_{i+1}"}, className="btn btn-sm btn-outline-primary"),
-                    dcc.Store(id={'type': 'topo-img-store', 'index': f"panel_{i+1}"}, data=img_b64),
-                    dcc.Download(id={'type': 'topo-download-link', 'index': f"panel_{i+1}"})
+                    html.Button(btn_label, id={'type': 'topo-download-btn', 'index': f"panel_{short_p}"}, className="btn btn-sm btn-outline-primary"),
+                    dcc.Store(id={'type': 'topo-img-store', 'index': f"panel_{short_p}"}, data=img_b64),
+                    dcc.Download(id={'type': 'topo-download-link', 'index': f"panel_{short_p}"})
                 ]))
             
     # --- Statistical Comparison Row ---
@@ -2399,9 +2420,16 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         if panels == 3: comps = [(0, 1), (0, 2), (1, 2)]
             
         for idx1, idx2 in comps:
-            label1, label2 = f"Painel {idx1+1}", f"Painel {idx2+1}"
+            p1, p2 = p_list[idx1], p_list[idx2]
+            from topoplot_engine import format_panel_label
+            label1 = format_panel_label(p1)
+            label2 = format_panel_label(p2)
+            short1 = format_panel_label(p1, short=True)
+            short2 = format_panel_label(p2, short=True)
+            comp_key = f"{short1}_vs_{short2}".replace(" ", "_").replace("(", "").replace(")", "")
+            
             img_comp, stats_data = generate_topoplot_comparison_base64(
-                p_list[idx1], p_list[idx2], scales[idx1] == 'db',
+                p1, p2, scales[idx1] == 'db',
                 label1=label1, label2=label2
             )
             
@@ -2421,18 +2449,18 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                     html.H4(f"Comparação: {label1} vs {label2}", className="text-center text-danger mb-2"),
                     html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
                     html.Details([
-                        html.Summary(f"📊 Detalhes Estatísticos ({label1} vs {label2})", 
+                        html.Summary(f"📊 Detalhes Estatísticos ({short1} vs {short2})", 
                                      style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#dc3545', 'marginTop': '10px'}),
                         html.Div(details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
                     ], className="mt-2")
                 ], className="card p-3 shadow-sm border-danger", style={'borderWidth': '2px', 'marginTop': '20px'}))
-                messages.append(f"Comparison {label1} vs {label2} Rendered.")
+                messages.append(f"Comparison {short1} vs {short2} Rendered.")
                 
                 # Button next to Quick Guide
                 download_buttons.append(html.Div([
-                    html.Button(f"📥 Salvar Comp. {idx1+1} vs {idx2+1}", id={'type': 'topo-download-btn', 'index': f"comp_{idx1}_{idx2}"}, className="btn btn-sm btn-outline-danger"),
-                    dcc.Store(id={'type': 'topo-img-store', 'index': f"comp_{idx1}_{idx2}"}, data=img_comp),
-                    dcc.Download(id={'type': 'topo-download-link', 'index': f"comp_{idx1}_{idx2}"})
+                    html.Button(f"📥 Salvar Comp. {short1} vs {short2}", id={'type': 'topo-download-btn', 'index': f"comp_{comp_key}"}, className="btn btn-sm btn-outline-danger"),
+                    dcc.Store(id={'type': 'topo-img-store', 'index': f"comp_{comp_key}"}, data=img_comp),
+                    dcc.Download(id={'type': 'topo-download-link', 'index': f"comp_{comp_key}"})
                 ]))
 
     return outputs, " | ".join(messages), download_buttons
@@ -2553,6 +2581,7 @@ def update_perf_options(prot):
      State('perf-spatial-ylim-min', 'value'), State('perf-spatial-ylim-max', 'value'),
      State('perf-spatial-distinguish-check', 'value'), State('perf-spatial-jitter-check', 'value'),
      State('perf-spatial-heatmap-check', 'value'), State('perf-spatial-color-sig-check', 'value'),
+     State('perf-spatial-color-markers-check', 'value'),
      State('perf-interaction-x', 'value'), State('perf-interaction-y', 'value'),
      State('perf-interaction-line', 'value'), State('perf-interaction-facet', 'value'),
      State('perf-ylim-min', 'value'), State('perf-ylim-max', 'value')]
@@ -2561,7 +2590,7 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                             anova_chk, anova_var, anova_indeps, alpha,
                             inter_chk, hybrid_chk, spatial_chk,
                             spatial_ylim_min, spatial_ylim_max,
-                            spatial_distinguish, spatial_jitter, spatial_heatmap, spatial_color_sig,
+                            spatial_distinguish, spatial_jitter, spatial_heatmap, spatial_color_sig, spatial_color_markers,
                             inter_x, inter_y, inter_line, inter_facet, ylim_min, ylim_max):
     if not n_clicks: raise PreventUpdate
     try:
@@ -2643,12 +2672,14 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                 distinguish_s = 'yes' in (spatial_distinguish or [])
                 jitter_s = 'yes' in (spatial_jitter or [])
                 color_sig_s = 'yes' in (spatial_color_sig or [])
+                color_markers_s = 'yes' in (spatial_color_markers or [])
                 heatmap_s = 'yes' in (spatial_heatmap or [])
                 
                 fig_x, hm_x, st_x, fig_y, hm_y, st_y, sp_err = run_spatial_proportions_analysis(
                     df, prot, alpha=alpha, ylim=parsed_spatial_ylim, 
                     distinguish=distinguish_s, show_jitter=jitter_s, 
-                    color_sig=color_sig_s, show_heatmap=heatmap_s
+                    color_sig=color_sig_s, show_heatmap=heatmap_s,
+                    color_markers=color_markers_s
                 )
                 spatial_style = {'display': 'block'}
                 if sp_err:
@@ -2703,6 +2734,7 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
 
 @app.callback(
     [Output('perf-anova-color-sig-check-container', 'style'),
+     Output('perf-anova-color-markers-check-container', 'style'),
      Output('perf-x-order-container', 'style'),
      Output('perf-x-order-2-container', 'style'),
      Output('perf-x-order-3-container', 'style'),
@@ -2733,7 +2765,7 @@ def update_x_order_options(protocol, val1, val2, val3):
         
     if not all_factors:
         # Hide the whole container for Protocol C
-        return sig_style, {'display': 'none'}, {'display': 'none'}, {'display': 'none'}, [], [], [], None, None, None
+        return sig_style, sig_style, {'display': 'none'}, {'display': 'none'}, {'display': 'none'}, [], [], [], None, None, None
 
     # Determine styles
     container_style = {'display': 'block'}
@@ -2765,7 +2797,7 @@ def update_x_order_options(protocol, val1, val2, val3):
     if val3 not in rem3:
         val3 = rem3[0] if rem3 else None
 
-    return sig_style, container_style, style2, style3, opt1, opt2, opt3, val1, val2, val3
+    return sig_style, sig_style, container_style, style2, style3, opt1, opt2, opt3, val1, val2, val3
 
 
 @app.callback(
@@ -2779,9 +2811,9 @@ def update_x_order_options(protocol, val1, val2, val3):
      State('perf-ylim-min', 'value'), State('perf-ylim-max', 'value'),
      State('perf-x-order-1', 'value'), State('perf-x-order-2', 'value'), State('perf-x-order-3', 'value'),
      State('perf-anova-distinguish-check', 'value'), State('perf-anova-jitter-check', 'value'),
-     State('perf-anova-color-sig-check', 'value')]
+     State('perf-anova-color-sig-check', 'value'), State('perf-anova-color-markers-check', 'value')]
 )
-def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk, ylim_min, ylim_max, order1, order2, order3, distinguish_val, jitter_val, color_sig_val):
+def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk, ylim_min, ylim_max, order1, order2, order3, distinguish_val, jitter_val, color_sig_val, color_markers_val):
     if not table_data: return go.Figure(), go.Figure(), {'display': 'none'}, "Execute a ANOVA primeiro."
     alpha = float(str(alpha).replace(',', '.')) if alpha else 0.05
     def get_p(r):
@@ -2831,7 +2863,8 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatma
     distinguish = 'yes' in (distinguish_val or [])
     show_jitter = 'yes' in (jitter_val or [])
     color_sig = 'yes' in (color_sig_val or [])
-    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter, color_sig=color_sig)
+    color_markers = 'yes' in (color_markers_val or [])
+    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter, color_sig=color_sig, color_markers=color_markers)
     
     fig_hm = go.Figure()
     hm_style = {'display': 'none'}

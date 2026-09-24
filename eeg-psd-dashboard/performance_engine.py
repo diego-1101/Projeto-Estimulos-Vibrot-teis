@@ -135,7 +135,7 @@ def tukey_hsd_from_model(data, response_col, group_col, anova_table=None, alpha=
             
     return pd.DataFrame(resultados)
 
-def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None, ylim=None, distinguish=False, ordered_active=None, show_jitter=True, color_sig=False):
+def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=None, show_sig_bars=True, anova_table=None, ylim=None, distinguish=False, ordered_active=None, show_jitter=False, color_sig=True, color_markers=True):
     """
     Creates an interactive dot plot with means, 95% CI, and significance brackets.
     """
@@ -157,11 +157,14 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
 
     fig = go.Figure()
 
-    # Funções de mapeamento semântico para exibição nos gráficos
+    # Funções de mapeamento semântico para exibição nos gráficos (Inglês: Easy, Medium, Hard)
     def format_factor_display(factor_name, val):
         s_val = str(val).replace('.0', '').strip()
         if factor_name == 'Complexidade':
-            comp_labels = {'1': 'Fácil', '4': 'Fácil', '2': 'Médio', '6': 'Médio', '3': 'Difícil', '8': 'Difícil'}
+            comp_labels = {
+                '1': 'Easy', '4': 'Easy', '2': 'Medium', '6': 'Medium', '3': 'Hard', '8': 'Hard',
+                'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'
+            }
             return comp_labels.get(s_val, s_val)
         return s_val
 
@@ -191,10 +194,11 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
             hoverinfo='y'
         ))
 
-    # Define dynamic visual patterns for distinction
+    # Define dynamic visual patterns for distinction (CV/CF -> #5dade2 light blue, SV/SF -> #0d47a1 dark blue)
     COLORS = {
-        'grupo': {'CV': '#0d6efd', 'SV': '#dc3545', 'CF': '#0d6efd', 'SF': '#dc3545'},
+        'grupo': {'CV': '#5dade2', 'SV': '#0d47a1', 'CF': '#5dade2', 'SF': '#0d47a1'},
         'Complexidade': {
+            'Easy': '#2ecc71', 'Medium': '#f39c12', 'Hard': '#e74c3c',
             'Fácil': '#2ecc71', 'Médio': '#f39c12', 'Difícil': '#e74c3c',
             '1': '#2ecc71', 1: '#2ecc71', '4': '#2ecc71', 4: '#2ecc71',
             '2': '#f39c12', 2: '#f39c12', '6': '#f39c12', 6: '#f39c12',
@@ -206,6 +210,7 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
     SYMBOLS = {
         'grupo': {'CV': 'circle', 'SV': 'diamond', 'CF': 'circle', 'SF': 'diamond'},
         'Complexidade': {
+            'Easy': 'circle', 'Medium': 'square', 'Hard': 'triangle-up',
             'Fácil': 'circle', 'Médio': 'square', 'Difícil': 'triangle-up',
             '1': 'circle', 1: 'circle', '4': 'circle', 4: 'circle',
             '2': 'square', 2: 'square', '6': 'square', 6: 'square',
@@ -223,7 +228,7 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
         f1_vals = sorted(df[f1_name].dropna().unique().tolist())
         for val1 in f1_vals:
             str_val = str(val1).replace('.0', '')
-            color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str_val, 'blue'))
+            color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str_val, '#0d6efd'))
             disp_val1 = format_factor_display(f1_name, str_val)
             fig.add_trace(go.Scatter(
                 x=[None], y=[None],
@@ -256,7 +261,7 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
             
             # Determine color from 1st factor
             val1 = parts[0] if len(parts) >= 1 else ''
-            color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str(val1), 'blue'))
+            color = COLORS.get(f1_name, {}).get(val1, COLORS.get(f1_name, {}).get(str(val1), '#0d6efd'))
             
             # Determine symbol from 2nd factor
             val2 = parts[1] if len(parts) >= 2 else ''
@@ -274,17 +279,67 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                 hovertemplate=f'Grupo: {cat_disp}<br>Média: %{{y:.3f}}<br>IC: ±%{{error_y.array:.3f}}<extra></extra>'
             ))
     else:
-        # Default behavior: single blue trace
-        x_disp = [format_cat_display(str(c), ordered_active, x_col) for c in g[x_col]]
-        fig.add_trace(go.Scatter(
-            x=x_disp,
-            y=g['mean'],
-            error_y=dict(type='data', array=g['ci95'], visible=True, color='blue', thickness=2, width=6),
-            mode='markers',
-            marker=dict(color='blue', size=10, symbol='circle'),
-            name=f'Média ± IC{(1-alpha)*100:.0f}%',
-            hovertemplate='Grupo: %{x}<br>Média: %{y:.3f}<br>IC: ±%{error_y.array:.3f}<extra></extra>'
-        ))
+        # Check if color_markers is enabled and group markers should be differentiated
+        def get_cat_marker_color(cat_str):
+            for p in str(cat_str).split('_'):
+                if p in ['CV', 'CF']:
+                    return '#5dade2'
+                elif p in ['SV', 'SF']:
+                    return '#0d47a1'
+            return '#0d6efd'
+
+        has_cv_cf = any(get_cat_marker_color(c) == '#5dade2' for c in g[x_col])
+        has_sv_sf = any(get_cat_marker_color(c) == '#0d47a1' for c in g[x_col])
+        has_cf = any('CF' in str(c).split('_') for c in g[x_col])
+        has_sf = any('SF' in str(c).split('_') for c in g[x_col])
+
+        if color_markers and (has_cv_cf or has_sv_sf):
+            # Dummy legend traces for group colors
+            if has_cv_cf:
+                cv_lbl = "Grupo CF" if (has_cf and not any('CV' in str(c).split('_') for c in g[x_col])) else ("Grupo CV/CF" if has_cf else "Grupo CV")
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode='markers',
+                    marker=dict(color='#5dade2', size=10, symbol='circle'),
+                    name=cv_lbl,
+                    showlegend=True
+                ))
+            if has_sv_sf:
+                sv_lbl = "Grupo SF" if (has_sf and not any('SV' in str(c).split('_') for c in g[x_col])) else ("Grupo SV/SF" if has_sf else "Grupo SV")
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode='markers',
+                    marker=dict(color='#0d47a1', size=10, symbol='circle'),
+                    name=sv_lbl,
+                    showlegend=True
+                ))
+
+            # Plot each mean and CI with its group color
+            for _, row in g.iterrows():
+                cat = str(row[x_col])
+                cat_disp = format_cat_display(cat, ordered_active, x_col)
+                c = get_cat_marker_color(cat)
+                fig.add_trace(go.Scatter(
+                    x=[cat_disp],
+                    y=[row['mean']],
+                    error_y=dict(type='data', array=[row['ci95']], visible=True, color=c, thickness=2, width=6),
+                    mode='markers',
+                    marker=dict(color=c, size=10, symbol='circle'),
+                    showlegend=False,
+                    hovertemplate=f'Grupo: {cat_disp}<br>Média: %{{y:.3f}}<br>IC: ±%{{error_y.array:.3f}}<extra></extra>'
+                ))
+        else:
+            # Default behavior: single blue trace
+            x_disp = [format_cat_display(str(c), ordered_active, x_col) for c in g[x_col]]
+            fig.add_trace(go.Scatter(
+                x=x_disp,
+                y=g['mean'],
+                error_y=dict(type='data', array=g['ci95'], visible=True, color='#0d6efd', thickness=2, width=6),
+                mode='markers',
+                marker=dict(color='#0d6efd', size=10, symbol='circle'),
+                name=f'Média ± IC{(1-alpha)*100:.0f}%',
+                hovertemplate='Grupo: %{x}<br>Média: %{y:.3f}<br>IC: ±%{error_y.array:.3f}<extra></extra>'
+            ))
 
     sig_results = []
     levels = []
@@ -723,7 +778,10 @@ def plot_interactive_significance_heatmap(data, response_col, group_col, anova_t
         tick_size = 8
 
     def map_comp_disp(g_str):
-        comp_labels = {'1': 'Fácil', '4': 'Fácil', '2': 'Médio', '6': 'Médio', '3': 'Difícil', '8': 'Difícil'}
+        comp_labels = {
+            '1': 'Easy', '4': 'Easy', '2': 'Medium', '6': 'Medium', '3': 'Hard', '8': 'Hard',
+            'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'
+        }
         parts = str(g_str).split('_')
         return "_".join([comp_labels.get(p.replace('.0', ''), p) for p in parts])
         
@@ -753,7 +811,7 @@ def plot_interactive_significance_heatmap(data, response_col, group_col, anova_t
     return fig, None
 
 
-def run_spatial_proportions_analysis(df, protocol, alpha=0.05, ylim=None, distinguish=False, show_jitter=True, color_sig=False, show_heatmap=False):
+def run_spatial_proportions_analysis(df, protocol, alpha=0.05, ylim=None, distinguish=False, show_jitter=False, color_sig=True, show_heatmap=False, color_markers=True):
     """
     Realiza teste estatístico (Teste-t de Welch) e plota dotplots com IC95% e barras de significância
     para Proporção Espacial X e Proporção Espacial Y entre os subgrupos experimentais (CV vs SV para Prot A, CF vs SF para Prot B).
@@ -806,7 +864,8 @@ def run_spatial_proportions_analysis(df, protocol, alpha=0.05, ylim=None, distin
             distinguish=distinguish, 
             ordered_active=[group_col],
             show_jitter=show_jitter, 
-            color_sig=color_sig
+            color_sig=color_sig,
+            color_markers=color_markers
         )
         figs[var_name] = fig
         
