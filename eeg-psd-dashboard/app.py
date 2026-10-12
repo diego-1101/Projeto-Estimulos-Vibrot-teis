@@ -31,7 +31,7 @@ base_path = os.path.dirname(__file__)
 from performance_engine import (
     run_normality_test, run_anova_typ3, plot_interactive_dot_sig, 
     plot_interactive_interaction, plot_interactive_hybrid, plot_interactive_significance_heatmap,
-    run_spatial_proportions_analysis
+    run_spatial_proportions_analysis, VAR_NAME_EN
 )
 
 try:
@@ -59,12 +59,12 @@ current_theme = 'light'
 
 # Define standard variables available for Y Checklist
 Y_VARIABLES = [
-    {'label': 'Desempenho', 'value': 'Desempenho'},
-    {'label': 'Acurácia', 'value': 'Acuracia'},
-    {'label': 'Similaridade', 'value': 'Similaridade'},
-    {'label': 'Especificidade', 'value': 'Especificidade'},
-    {'label': 'Proporção Espacial X', 'value': 'Proporção espacial x'},
-    {'label': 'Proporção Espacial Y', 'value': 'Proporção espacial y'},
+    {'label': 'Performance', 'value': 'Desempenho'},
+    {'label': 'Accuracy', 'value': 'Acuracia'},
+    {'label': 'Similarity', 'value': 'Similaridade'},
+    {'label': 'Specificity', 'value': 'Especificidade'},
+    {'label': 'Spatial Proportion X', 'value': 'Proporção espacial x'},
+    {'label': 'Spatial Proportion Y', 'value': 'Proporção espacial y'},
 ]
 
 ALL_CHANNELS = ['FP1', 'FP2', 'FZ', 'F3', 'F4', 'F7', 'F8', 'CZ', 'C3', 'C4', 'T7', 'T8', 'P7', 'P8', 'PZ', 'P3', 'P4', 'O1', 'O2', 'FCZ', 'FC1', 'FC2', 'FC3', 'OZ', 'C2', 'CP1', 'CP3', 'CP4', 'C1', 'FC4', 'CPZ', 'CP2']
@@ -105,7 +105,9 @@ def build_supervision_labels(meta, protocol, color_by_mode):
 
     # Assemble series
     try:
-        group = meta['grupo'].astype(str)
+        grp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-'}
+        raw_grp = meta['grupo'].astype(str)
+        group = raw_grp.map(lambda x: grp_map.get(str(x), str(x)))
         raw_comp = meta.get('Complexidade', pd.Series('Unk', index=meta.index)).astype(str).str.replace(r'\.0$', '', regex=True)
         comp_map = {'1': 'Easy', '2': 'Medium', '3': 'Hard', '4': 'Easy', '6': 'Medium', '8': 'Hard',
                     'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'}
@@ -118,12 +120,12 @@ def build_supervision_labels(meta, protocol, color_by_mode):
             cluster_s = group
         elif mode == 'complexity':
             color_s = comp
-            symbol_s = color_s
-            cluster_s = color_s
+            symbol_s = group if protocol in ['A', 'B'] else comp
+            cluster_s = group + '_' + comp if protocol in ['A', 'B'] else comp
         elif mode == 'overlap':
             color_s = 'O' + over
-            symbol_s = color_s
-            cluster_s = color_s
+            symbol_s = group if protocol in ['A', 'B'] else color_s
+            cluster_s = group + '_O' + over if protocol in ['A', 'B'] else color_s
         elif mode == 'group_comp':
             color_s = comp
             symbol_s = group
@@ -133,11 +135,11 @@ def build_supervision_labels(meta, protocol, color_by_mode):
             symbol_s = group
             cluster_s = group + '_O' + over
         elif mode == 'comp_overlap':
-            color_s = 'O' + over
-            symbol_s = comp
+            color_s = comp
+            symbol_s = group if protocol in ['A', 'B'] else comp
             cluster_s = comp + '_O' + over
         elif mode == 'all':
-            color_s = comp + '_O' + over
+            color_s = comp
             symbol_s = group
             cluster_s = group + '_' + comp + '_O' + over
         
@@ -147,7 +149,10 @@ def build_supervision_labels(meta, protocol, color_by_mode):
     except KeyError as e:
         # Fallback if a column is miraculously missing
         print(f"KeyError: {e}. Falling back to default Group coloring.")
-        color_labels = meta['grupo'].astype(str).tolist()
+        grp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-'}
+        raw_grp = meta['grupo'].astype(str)
+        group = raw_grp.map(lambda x: grp_map.get(str(x), str(x)))
+        color_labels = group.tolist()
         symbol_labels = color_labels
         cluster_labels = color_labels
         warning = True
@@ -182,25 +187,25 @@ def create_analysis_controls(panel_id):
                 {'label': 'CDA', 'value': 'CDA'},
                 {'label': 'PLS', 'value': 'PLS'}
             ],
-            value='PCA',
+            value='CDA',
             className="mb-3 dash-dropdown"
         ),
 
-        html.Label("Fase", className="control-label"),
+        html.Label("Phase", className="control-label"),
         dcc.Dropdown(id={'type': 'fase-dropdown', 'index': panel_id}, className="mb-3 dash-dropdown"),
         
         html.Label("X (PSD Features)", className="control-label"),
         dcc.Dropdown(
             id={'type': 'x-mode-dropdown', 'index': panel_id},
             options=[
-                {'label': 'PSD Completo Normalizado (Baseline)', 'value': 'psd_full_norm'},
-                {'label': 'PSD Potência de 2 em 2 Hz Normalizado', 'value': 'psd_2em2_norm'}
+                {'label': 'Full Normalized PSD (Baseline)', 'value': 'psd_full_norm'},
+                {'label': 'Normalized 2 Hz Binned PSD Power', 'value': 'psd_2em2_norm'}
             ],
-            value='psd_full_norm',
+            value='psd_2em2_norm',
             className="mb-3 dash-dropdown"
         ),
 
-        html.Label("Canais (Features do X)", className="control-label"),
+        html.Label("Channels (X Features)", className="control-label"),
         dcc.Dropdown(
             id={'type': 'channels-dropdown', 'index': panel_id},
             options=[{'label': 'Select All', 'value': 'ALL'}] + [{'label': ch, 'value': ch} for ch in ALL_CHANNELS],
@@ -246,7 +251,7 @@ def create_analysis_controls(panel_id):
         dcc.Dropdown(
             id={'type': 'color-dropdown', 'index': panel_id},
             options=[
-                {'label': 'Group (CV/SV/CF/SF)', 'value': 'group'},
+                {'label': 'Group (V+/V-/F+/F-)', 'value': 'group'},
                 {'label': 'Complexity', 'value': 'complexity'},
                 {'label': 'Overlap (Prot A)', 'value': 'overlap'},
                 {'label': 'Group + Complexity', 'value': 'group_comp'},
@@ -254,7 +259,7 @@ def create_analysis_controls(panel_id):
                 {'label': 'Complexity + Overlap', 'value': 'comp_overlap'},
                 {'label': 'Group + Comp + Overlap', 'value': 'all'}
             ],
-            value='group',
+            value='group_comp',
             className="mb-3 dash-dropdown"
         ),
 
@@ -264,11 +269,12 @@ def create_analysis_controls(panel_id):
             dcc.Dropdown(
                 id={'type': 'supervision-dropdown', 'index': panel_id},
                 options=[
-                    {'label': 'Group (CV/SV)', 'value': 'grupo'},
+                    {'label': 'Group (CV/SV)', 'value': 'group'},
                     {'label': 'Complexity', 'value': 'complexity'},
-                    {'label': 'Overlap (Prot A)', 'value': 'overlap'}
+                    {'label': 'Overlap (Prot A)', 'value': 'overlap'},
+                    {'label': 'Group + Complexity', 'value': 'group_comp'}
                 ],
-                value='grupo',
+                value='group_comp',
                 className="mb-3 dash-dropdown"
             ),
         ]),
@@ -419,28 +425,38 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
             if dim_idx >= len(dim_candidates):
                 empty_fig = go.Figure()
                 empty_fig.update_layout(
-                    title=f"CD{dim_idx+1}: Dimensão não disponível", 
+                    title=f"CD{dim_idx+1}: Dimension not available", 
                     template='plotly_dark' if theme == 'dark' else 'plotly_white',
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
                 )
-                return empty_fig, f"Dimensão CD{dim_idx+1} não calculada para este modelo/número de classes."
+                return empty_fig, f"Dimension CD{dim_idx+1} not calculated for this model/class count."
                 
             d_name, d_series = dim_candidates[dim_idx]
             s_df = pd.DataFrame({'val': d_series, 'cluster_label': cluster_labels}).dropna()
             try:
                 if not s_df.empty and len(s_df['cluster_label'].unique()) > 1:
                     fig_a, stats_a = compute_anova_and_plot(s_df, 'val', 'cluster_label')
-                    fig_a.update_layout(title=f"ANOVA: {d_name}")
+                    fig_a.update_layout(
+                        title=dict(
+                            text=f"ANOVA: {d_name}",
+                            y=0.98,
+                            x=0.5,
+                            xanchor='center',
+                            yanchor='top',
+                            yref='container'
+                        ),
+                        autosize=True
+                    )
                     if theme == 'dark':
                         fig_a.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                     p_val = stats_a.get('p_value', 1)
-                    sig_badge = " (Significativo: p < 0.05)" if p_val < 0.05 else " (Não significativo: ns)"
-                    res_txt = f"F: {stats_a.get('F', 0):.2f} | p-valor: {p_val:.4e}{sig_badge}"
+                    sig_badge = " (Significant: p < 0.05)" if p_val < 0.05 else " (Not significant: ns)"
+                    res_txt = f"F: {stats_a.get('F', 0):.2f} | p-value: {p_val:.4e}{sig_badge}"
                     return fig_a, res_txt
                 else:
                     empty_fig = go.Figure()
-                    empty_fig.update_layout(title=f"ANOVA: {d_name} (Insuficiente)")
-                    return empty_fig, "ANOVA: Grupos ou dados insuficientes."
+                    empty_fig.update_layout(title=f"ANOVA: {d_name} (Insufficient)")
+                    return empty_fig, "ANOVA: Insufficient groups or data."
             except Exception as ae:
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title=f"ANOVA Error: {d_name}")
@@ -472,7 +488,7 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                 
                 for g1, g2, d in pairs:
                     centroid_res.append(
-                        html.Div(f"{g1} ↔ {g2} : {d:.3f}", 
+                        html.Div(f"{g1} <-> {g2} : {d:.3f}", 
                                  className="badge bg-secondary me-2 mb-2 p-2", 
                                  style={'fontSize': '0.9em'})
                     )
@@ -494,16 +510,32 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
              if target_raw in meta.columns:
                  hover_cols.append(target_raw)
 
+        # Standardized color map for complexity across all protocols (Easy, Medium, Hard)
+        COMPLEXITY_COLOR_MAP = {
+            'Easy': '#2ecc71',
+            'Medium': '#f39c12',
+            'Hard': '#e74c3c'
+        }
+
         # Plot definitions
         color_map = None
         if color_by == 'group' and protocol in ['A', 'B']:
-            color_map = {'CV': '#2ecc71', 'SV': '#e74c3c', 'CF': '#2ecc71', 'SF': '#e74c3c'}
-        elif color_by == 'complexity':
-            color_map = {'Easy': '#2ecc71', 'Medium': '#f39c12', 'Hard': '#e74c3c'}
+            color_map = {
+                'CV': '#5dade2', 'SV': '#0d47a1', 'CF': '#5dade2', 'SF': '#0d47a1',
+                'V+': '#5dade2', 'V-': '#0d47a1', 'F+': '#5dade2', 'F-': '#0d47a1'
+            }
+        elif color_by in ['complexity', 'group_comp'] or protocol == 'C':
+            color_map = COMPLEXITY_COLOR_MAP
+        else:
+            unique_colors = set(plot_df['color_label'].dropna().unique())
+            if unique_colors.issubset({'Easy', 'Medium', 'Hard'}):
+                color_map = COMPLEXITY_COLOR_MAP
             
         symbol_map = {
-            'CV': 'circle', 'SV': 'square', 'CF': 'circle', 'SF': 'square',
-            'Easy': 'circle', 'Medium': 'square', 'Hard': 'triangle-up'
+            'CV': 'x', 'CF': 'x', 'V+': 'x', 'F+': 'x',
+            'SV': 'circle', 'SF': 'circle', 'V-': 'circle', 'F-': 'circle',
+            'Easy': 'circle', 'Medium': 'circle', 'Hard': 'circle',
+            'ALL': 'circle'
         }
             
         params = {
@@ -511,8 +543,8 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
              'symbol': 'symbol_label',
              'symbol_map': symbol_map,
              'category_orders': {
-                 'color_label': ['Easy', 'Medium', 'Hard', 'CV', 'SV', 'CF', 'SF'],
-                 'symbol_label': ['Easy', 'Medium', 'Hard', 'CV', 'SV', 'CF', 'SF']
+                 'color_label': ['Easy', 'Medium', 'Hard', 'V+', 'F+', 'V-', 'F-', 'CV', 'CF', 'SV', 'SF'],
+                 'symbol_label': ['V+', 'F+', 'V-', 'F-', 'CV', 'CF', 'SV', 'SF', 'Easy', 'Medium', 'Hard', 'ALL']
              },
              'hover_data': hover_cols,
              'title': f"{method} - {domain.upper()} - {title_suffix}"
@@ -522,10 +554,22 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
 
         if n_dims == 2:
             fig = px.scatter(plot_df, x=axis_names[0], y=axis_names[1], **params)
-            fig.update_traces(marker=dict(size=10, line=dict(width=1, color='white')))
+            for trace in fig.data:
+                sym = getattr(trace.marker, 'symbol', 'circle')
+                if sym in ['x', 'cross']:
+                    trace.marker.size = 7
+                    trace.marker.line = dict(width=1.5, color=trace.marker.color)
+                else:
+                    trace.marker.size = 6
+                    trace.marker.line = dict(width=0.8, color='white' if theme != 'dark' else '#2d2d2d')
         else:
             fig = px.scatter_3d(plot_df, x=axis_names[0], y=axis_names[1], z=axis_names[2], **params)
-            fig.update_traces(marker=dict(size=6))
+            for trace in fig.data:
+                sym = getattr(trace.marker, 'symbol', 'circle')
+                if sym in ['x', 'cross']:
+                    trace.marker.size = 5
+                else:
+                    trace.marker.size = 4
         
         # Theme
         if theme == 'dark':
@@ -543,37 +587,37 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
         
         if 'X_explained_variance' in stats:
              var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['X_explained_variance'][:3])])
-             stats_content.append(html.P([html.Strong("X Var (3 primeiras): "), var_txt]))
+             stats_content.append(html.P([html.Strong("X Var (first 3): "), var_txt]))
         if 'Y_explained_variance' in stats:
              var_txt = ", ".join([f"C{i+1}: {v*100:.1f}%" for i, v in enumerate(stats['Y_explained_variance'][:3])])
-             stats_content.append(html.P([html.Strong("Y Var (3 primeiras): "), var_txt]))
+             stats_content.append(html.P([html.Strong("Y Var (first 3): "), var_txt]))
         if 'canonical_correlations' in stats:
              corr_txt = ", ".join([f"r{i+1}: {c:.3f}" for i, c in enumerate(stats['canonical_correlations'][:3])])
-             stats_content.append(html.P([html.Strong("Canonical Corrs (3 primeiras): "), corr_txt]))
+             stats_content.append(html.P([html.Strong("Canonical Corrs (first 3): "), corr_txt]))
              
         if 'CDA_X' in stats:
              cdx = stats['CDA_X']
              chisqs = ", ".join([f"{c:.1f}" for c in cdx['chisq'][:3]])
              stats_content.append(html.P([html.Strong("CDA X Ext. Dims: "), str(cdx['d'])]))
-             stats_content.append(html.P([html.Strong("CDA X ChiSqs (3 primeiras): "), chisqs]))
+             stats_content.append(html.P([html.Strong("CDA X ChiSqs (first 3): "), chisqs]))
              if 'explained_variance_ratio' in cdx:
                  var_txt = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdx['explained_variance_ratio'][:3])])
-                 stats_content.append(html.P([html.Strong("CDA X Var Explicada (3 primeiras): "), var_txt]))
+                 stats_content.append(html.P([html.Strong("CDA X Explained Var (first 3): "), var_txt]))
              if 'eigenval' in cdx:
                  eig_txt = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdx['eigenval'][:3])])
-                 stats_content.append(html.P([html.Strong("CDA X Eigenvalues (3 primeiras): "), eig_txt]))
+                 stats_content.append(html.P([html.Strong("CDA X Eigenvalues (first 3): "), eig_txt]))
 
         if 'CDA_Y' in stats:
              cdy = stats['CDA_Y']
              chisqs_y = ", ".join([f"{c:.1f}" for c in cdy['chisq'][:3]])
              stats_content.append(html.P([html.Strong("CDA Y Ext. Dims: "), str(cdy['d'])]))
-             stats_content.append(html.P([html.Strong("CDA Y ChiSqs (3 primeiras): "), chisqs_y]))
+             stats_content.append(html.P([html.Strong("CDA Y ChiSqs (first 3): "), chisqs_y]))
              if 'explained_variance_ratio' in cdy:
                  var_txt_y = ", ".join([f"CD{i+1}: {v*100:.1f}%" for i, v in enumerate(cdy['explained_variance_ratio'][:3])])
-                 stats_content.append(html.P([html.Strong("CDA Y Var Explicada (3 primeiras): "), var_txt_y]))
+                 stats_content.append(html.P([html.Strong("CDA Y Explained Var (first 3): "), var_txt_y]))
              if 'eigenval' in cdy:
                  eig_txt_y = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdy['eigenval'][:3])])
-                 stats_content.append(html.P([html.Strong("CDA Y Eigenvalues (3 primeiras): "), eig_txt_y]))
+                 stats_content.append(html.P([html.Strong("CDA Y Eigenvalues (first 3): "), eig_txt_y]))
 
         return fig, html.Div(stats_content or "No stats evaluated"), anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, html.Div(centroid_res, className="d-flex flex-wrap")
         
@@ -668,17 +712,17 @@ def get_analysis_layout():
             html.Div([
                 html.H4("ANOVA Test — CD1"),
                 html.Div(id='anova-stats-1', className="mb-2"),
-                dcc.Graph(id='anova-plot-1', style={'height': '500px'})
+                dcc.Graph(id='anova-plot-1', responsive=True, style={'minHeight': '500px', 'width': '100%'}, config={'responsive': True})
             ], className="card mb-3"),
             html.Div([
                 html.H4("ANOVA Test — CD2"),
                 html.Div(id='anova-stats-1-cd2', className="mb-2"),
-                dcc.Graph(id='anova-plot-1-cd2', style={'height': '500px'})
+                dcc.Graph(id='anova-plot-1-cd2', responsive=True, style={'minHeight': '500px', 'width': '100%'}, config={'responsive': True})
             ], className="card mb-3"),
             html.Div([
                 html.H4("ANOVA Test — CD3"),
                 html.Div(id='anova-stats-1-cd3', className="mb-2"),
-                dcc.Graph(id='anova-plot-1-cd3', style={'height': '500px'})
+                dcc.Graph(id='anova-plot-1-cd3', responsive=True, style={'minHeight': '500px', 'width': '100%'}, config={'responsive': True})
             ], className="card mb-3"),
             html.Div([
                 html.H4("Centroid Distances"),
@@ -699,17 +743,17 @@ def get_analysis_layout():
                     html.Div([
                         html.H5("ANOVA 1 — CD1"),
                         html.Div(id='anova-stats-left', className="mb-2"),
-                        dcc.Graph(id='anova-plot-left', style={'height': '400px'})
+                        dcc.Graph(id='anova-plot-left', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 1 — CD2"),
                         html.Div(id='anova-stats-left-cd2', className="mb-2"),
-                        dcc.Graph(id='anova-plot-left-cd2', style={'height': '400px'})
+                        dcc.Graph(id='anova-plot-left-cd2', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 1 — CD3"),
                         html.Div(id='anova-stats-left-cd3', className="mb-2"),
-                        dcc.Graph(id='anova-plot-left-cd3', style={'height': '400px'})
+                        dcc.Graph(id='anova-plot-left-cd3', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("Centroid Distances 1"), 
@@ -727,17 +771,17 @@ def get_analysis_layout():
                     html.Div([
                         html.H5("ANOVA 2 — CD1"),
                         html.Div(id='anova-stats-right', className="mb-2"),
-                        dcc.Graph(id='anova-plot-right', style={'height': '400px'})
+                        dcc.Graph(id='anova-plot-right', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 2 — CD2"),
                         html.Div(id='anova-stats-right-cd2', className="mb-2"),
-                        dcc.Graph(id='anova-plot-right-cd2', style={'height': '400px'})
+                        dcc.Graph(id='anova-plot-right-cd2', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 2 — CD3"),
                         html.Div(id='anova-stats-right-cd3', className="mb-2"),
-                        dcc.Graph(id='anova-plot-right-cd3', style={'height': '400px'})
+                        dcc.Graph(id='anova-plot-right-cd3', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("Centroid Distances 2"), 
@@ -799,35 +843,35 @@ def get_psd_layout():
             ),
             
             html.Hr(),
-            html.Label("Estratificar por Linhas (Subplots)", className="control-label"),
+            html.Label("Stratify by Rows (Subplots)", className="control-label"),
             dcc.Dropdown(
                 id='psd-stratify-dropdown',
                 options=[
-                    {'label': 'Sem Estratificação (Linha Única)', 'value': 'none'},
-                    {'label': 'Grupo (CV/SV)', 'value': 'grupo'},
-                    {'label': 'Complexidade', 'value': 'complexity'},
+                    {'label': 'No Stratification (Single Row)', 'value': 'none'},
+                    {'label': 'Group (V+/V-)', 'value': 'grupo'},
+                    {'label': 'Complexity', 'value': 'complexity'},
                     {'label': 'Overlap', 'value': 'overlap'},
-                    {'label': 'Grupo + Complexidade', 'value': 'grupo_complexity'},
-                    {'label': 'Grupo + Overlap', 'value': 'grupo_overlap'},
-                    {'label': 'Complexidade + Overlap', 'value': 'complexity_overlap'},
-                    {'label': 'Todos os Fatores', 'value': 'all'}
+                    {'label': 'Group + Complexity', 'value': 'grupo_complexity'},
+                    {'label': 'Group + Overlap', 'value': 'grupo_overlap'},
+                    {'label': 'Complexity + Overlap', 'value': 'complexity_overlap'},
+                    {'label': 'All Factors', 'value': 'all'}
                 ],
                 value='grupo',
                 className="mb-3 dash-dropdown"
             ),
             
-            html.Label("Sobrepor por Cores (No mesmo plot)", className="control-label"),
+            html.Label("Overlay by Colors (Same plot)", className="control-label"),
             dcc.Dropdown(
                 id='psd-overlay-dropdown',
                 options=[
-                    {'label': 'Sem Sobreposição (Mostrar Trials)', 'value': 'none'},
-                    {'label': 'Grupo (CV/SV)', 'value': 'grupo'},
-                    {'label': 'Complexidade', 'value': 'complexity'},
+                    {'label': 'No Overlay (Show Trials)', 'value': 'none'},
+                    {'label': 'Group (V+/V-)', 'value': 'grupo'},
+                    {'label': 'Complexity', 'value': 'complexity'},
                     {'label': 'Overlap', 'value': 'overlap'},
-                    {'label': 'Grupo + Complexidade', 'value': 'grupo_complexity'},
-                    {'label': 'Grupo + Overlap', 'value': 'grupo_overlap'},
-                    {'label': 'Complexidade + Overlap', 'value': 'complexity_overlap'},
-                    {'label': 'Todos os Fatores', 'value': 'all'}
+                    {'label': 'Group + Complexity', 'value': 'grupo_complexity'},
+                    {'label': 'Group + Overlap', 'value': 'grupo_overlap'},
+                    {'label': 'Complexity + Overlap', 'value': 'complexity_overlap'},
+                    {'label': 'All Factors', 'value': 'all'}
                 ],
                 value='none',
                 className="mb-4 dash-dropdown"
@@ -877,7 +921,7 @@ def get_topoplot_layout():
                     ),
                     
                     html.Div(id={'type': 'topo-fase-container', 'index': 1}, children=[
-                        html.Label("Fase", className="control-label"),
+                        html.Label("Phase", className="control-label"),
                         dcc.Dropdown(id={'type': 'topo-fase-dropdown', 'index': 1}, className="mb-3 dash-dropdown"),
                     ]),
                     
@@ -889,7 +933,7 @@ def get_topoplot_layout():
                     html.Div(id={'type': 'topo-norm-container', 'index': 1}, children=[
                         dcc.Checklist(
                             id={'type': 'topo-norm-check', 'index': 1},
-                            options=[{'label': ' Normalizado', 'value': 'yes'}],
+                            options=[{'label': ' Normalized', 'value': 'yes'}],
                             value=['yes'],
                             className="mb-3"
                         )
@@ -909,7 +953,7 @@ def get_topoplot_layout():
             ], open=True, className="mb-3"),
 
 
-            html.Label("Número de Plots", className="control-label"),
+            html.Label("Number of Plots", className="control-label"),
             dcc.RadioItems(
                 id='topo-plot-count-radio',
                 options=[
@@ -939,7 +983,7 @@ def get_topoplot_layout():
                         ),
                         
                         html.Div(id={'type': 'topo-fase-container', 'index': 2}, children=[
-                            html.Label("Fase", className="control-label"),
+                            html.Label("Phase", className="control-label"),
                             dcc.Dropdown(id={'type': 'topo-fase-dropdown', 'index': 2}, className="mb-3 dash-dropdown"),
                         ]),
                         
@@ -951,7 +995,7 @@ def get_topoplot_layout():
                         html.Div(id={'type': 'topo-norm-container', 'index': 2}, children=[
                             dcc.Checklist(
                                 id={'type': 'topo-norm-check', 'index': 2},
-                                options=[{'label': ' Normalizado', 'value': 'yes'}],
+                                options=[{'label': ' Normalized', 'value': 'yes'}],
                                 value=['yes'],
                                 className="mb-3"
                             )
@@ -989,7 +1033,7 @@ def get_topoplot_layout():
                         ),
                         
                         html.Div(id={'type': 'topo-fase-container', 'index': 3}, children=[
-                            html.Label("Fase", className="control-label"),
+                            html.Label("Phase", className="control-label"),
                             dcc.Dropdown(id={'type': 'topo-fase-dropdown', 'index': 3}, className="mb-3 dash-dropdown"),
                         ]),
                         
@@ -1001,7 +1045,7 @@ def get_topoplot_layout():
                         html.Div(id={'type': 'topo-norm-container', 'index': 3}, children=[
                             dcc.Checklist(
                                 id={'type': 'topo-norm-check', 'index': 3},
-                                options=[{'label': ' Normalizado', 'value': 'yes'}],
+                                options=[{'label': ' Normalized', 'value': 'yes'}],
                                 value=['yes'],
                                 className="mb-3"
                             )
@@ -1021,14 +1065,14 @@ def get_topoplot_layout():
                 ], open=True, className="mb-3")
             ]),
 
-            html.Label("Escala do Mapa", className="control-label"),
+            html.Label("Map Scale", className="control-label"),
             dcc.Dropdown(
                 id='topo-scale-mode-dropdown',
                 options=[
-                    {'label': 'Global (Todos os Protocolos)', 'value': 'global'},
-                    {'label': 'Por Protocolo', 'value': 'protocol'},
-                    {'label': 'Por Protocolo e Fase', 'value': 'context'},
-                    {'label': 'Independente (Por Banda)', 'value': 'independent'}
+                    {'label': 'Global (All Protocols)', 'value': 'global'},
+                    {'label': 'By Protocol', 'value': 'protocol'},
+                    {'label': 'By Protocol and Phase', 'value': 'context'},
+                    {'label': 'Independent (Per Band)', 'value': 'independent'}
                 ],
                 value='global',
                 className="mb-3 dash-dropdown"
@@ -1037,11 +1081,12 @@ def get_topoplot_layout():
             html.Div(id='topo-compare-mode-wrapper', style={'display': 'none'}, children=[
                 dcc.Checklist(
                     id='topo-compare-mode-check',
-                    options=[{'label': ' Modo Comparação (inverter linhas por colunas)', 'value': 'yes'}],
+                    options=[{'label': ' Comparison Mode (invert rows and columns)', 'value': 'yes'}],
                     value=[],
                     className="mb-3"
                 )
             ]),
+
 
             html.Button("Run Topoplot", id='run-topo-btn', className="btn btn-primary w-100"),
             html.Hr(),
@@ -1095,16 +1140,16 @@ def get_performance_layout():
             
             dcc.Checklist(
                 id='perf-normality-check',
-                options=[{'label': ' Testar Normalidade', 'value': 'yes'}],
+                options=[{'label': ' Test Normality', 'value': 'yes'}],
                 value=[],
                 className="mb-2"
             ),
             html.Div(id='perf-normality-controls', style={'display': 'none'}, children=[
-                html.Label("Variável de Teste", className="control-label"),
+                html.Label("Test Variable", className="control-label"),
                 dcc.Dropdown(id='perf-normality-var', options=Y_VARIABLES, value='Desempenho', className="mb-2 dash-dropdown"),
                 html.Div(id='perf-normality-group-container', children=[
-                    html.Label("Grupo", className="control-label"),
-                    dcc.Dropdown(id='perf-normality-group', options=[{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}, {'label': 'Ambos', 'value': 'Ambos'}], value='Ambos', className="mb-2 dash-dropdown")
+                    html.Label("Group", className="control-label"),
+                    dcc.Dropdown(id='perf-normality-group', options=[{'label': 'V+', 'value': 'CV'}, {'label': 'V-', 'value': 'SV'}, {'label': 'Both', 'value': 'Ambos'}], value='Ambos', className="mb-2 dash-dropdown")
                 ])
             ]),
             
@@ -1112,40 +1157,40 @@ def get_performance_layout():
             
             dcc.Checklist(
                 id='perf-anova-check',
-                options=[{'label': ' Executar ANOVA Typ=3 & Post-Hoc', 'value': 'yes'}],
+                options=[{'label': ' Run Type III ANOVA & Post-Hoc', 'value': 'yes'}],
                 value=[],
                 className="mb-2"
             ),
             html.Div(id='perf-anova-controls', style={'display': 'none'}, children=[
-                html.Label("Variável Dependente (Y)", className="control-label"),
+                html.Label("Dependent Variable (Y)", className="control-label"),
                 dcc.Dropdown(id='perf-anova-target', options=Y_VARIABLES, value='Desempenho', className="mb-2 dash-dropdown"),
-                html.Label("Variáveis Independentes (X)", className="control-label"),
+                html.Label("Independent Variables (X)", className="control-label"),
                 dcc.Checklist(id='perf-anova-independents', options=[
-                    {'label': 'Complexidade', 'value': 'Complexidade'},
-                    {'label': 'Grupo', 'value': 'grupo'},
+                    {'label': 'Complexity', 'value': 'Complexidade'},
+                    {'label': 'Group', 'value': 'grupo'},
                     {'label': 'Overlap', 'value': 'Overlap'}
                 ], value=['Complexidade'], className="mb-2 list-style-none", labelStyle={'display': 'block', 'marginBottom': '5px'}),
                 html.Div(id='perf-ylim-container', children=[
-                    html.Label("Limites do Eixo Y (Mín, Máx)", className="control-label"),
+                    html.Label("Y-Axis Limits (Min, Max)", className="control-label"),
                     html.Div([
-                        dcc.Input(id='perf-ylim-min', type='number', placeholder='Mín', className="form-control me-2", style={'width': '48%', 'display': 'inline-block'}),
-                        dcc.Input(id='perf-ylim-max', type='number', placeholder='Máx', className="form-control", style={'width': '48%', 'display': 'inline-block'})
+                        dcc.Input(id='perf-ylim-min', type='number', placeholder='Min', className="form-control me-2", style={'width': '48%', 'display': 'inline-block'}),
+                        dcc.Input(id='perf-ylim-max', type='number', placeholder='Max', className="form-control", style={'width': '48%', 'display': 'inline-block'})
                     ], className="mb-2", style={'display': 'flex', 'justifyContent': 'space-between'})
                 ]),
 
                 html.Div(id='perf-x-order-container', style={'display': 'none'}, children=[
-                    html.Label("Ordem do Eixo X (ANOVA Dotplot)", className="control-label mt-2"),
+                    html.Label("X-Axis Order (ANOVA Dotplot)", className="control-label mt-2"),
                     html.Div([
                         html.Div([
-                            html.Label("1º Fator", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
+                            html.Label("1st Factor", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
                             dcc.Dropdown(id='perf-x-order-1', options=[], className="mb-1 dash-dropdown")
                         ]),
                         html.Div(id='perf-x-order-2-container', children=[
-                            html.Label("2º Fator", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
+                            html.Label("2nd Factor", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
                             dcc.Dropdown(id='perf-x-order-2', options=[], className="mb-1 dash-dropdown")
                         ]),
                         html.Div(id='perf-x-order-3-container', children=[
-                            html.Label("3º Fator", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
+                            html.Label("3rd Factor", className="small text-muted mb-0", style={'fontSize': '0.82em'}),
                             dcc.Dropdown(id='perf-x-order-3', options=[], className="mb-1 dash-dropdown")
                         ])
                     ], className="p-2 border rounded bg-light")
@@ -1153,7 +1198,7 @@ def get_performance_layout():
                 
                 dcc.Checklist(
                     id='perf-anova-distinguish-check',
-                    options=[{'label': ' Distinguir médias por Cor/Símbolo', 'value': 'yes'}],
+                    options=[{'label': ' Distinguish means by Color/Symbol', 'value': 'yes'}],
                     value=[],
                     className="mt-2 mb-2 text-muted",
                     style={'fontSize': '0.9em'}
@@ -1161,7 +1206,7 @@ def get_performance_layout():
                 
                 dcc.Checklist(
                     id='perf-anova-jitter-check',
-                    options=[{'label': ' Exibir pontos de dispersão', 'value': 'yes'}],
+                    options=[{'label': ' Show dispersion points', 'value': 'yes'}],
                     value=[],
                     className="mb-2 text-muted",
                     style={'fontSize': '0.9em'}
@@ -1169,7 +1214,7 @@ def get_performance_layout():
                 
                 dcc.Checklist(
                     id='perf-heatmap-check',
-                    options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}],
+                    options=[{'label': ' Show Significance Heatmap', 'value': 'yes'}],
                     value=[],
                     className="mb-2 text-muted",
                     style={'fontSize': '0.9em'}
@@ -1178,7 +1223,7 @@ def get_performance_layout():
                 html.Div(id='perf-anova-color-sig-check-container', children=[
                     dcc.Checklist(
                         id='perf-anova-color-sig-check',
-                        options=[{'label': ' Colorir barras de significância por tipo de comparação', 'value': 'yes'}],
+                        options=[{'label': ' Color significance brackets by comparison type', 'value': 'yes'}],
                         value=['yes'],
                         className="mb-2 text-muted",
                         style={'fontSize': '0.9em'}
@@ -1188,7 +1233,7 @@ def get_performance_layout():
                 html.Div(id='perf-anova-color-markers-check-container', children=[
                     dcc.Checklist(
                         id='perf-anova-color-markers-check',
-                        options=[{'label': ' Colorir markers por grupo', 'value': 'yes'}],
+                        options=[{'label': ' Color markers by group', 'value': 'yes'}],
                         value=['yes'],
                         className="mb-2 text-muted",
                         style={'fontSize': '0.9em'}
@@ -1201,35 +1246,35 @@ def get_performance_layout():
             html.Div(id='perf-spatial-prop-check-container', children=[
                 dcc.Checklist(
                     id='perf-spatial-prop-check',
-                    options=[{'label': ' Testar Proporções Espacial entre grupos', 'value': 'yes'}],
+                    options=[{'label': ' Test Spatial Proportions between groups', 'value': 'yes'}],
                     value=[],
                     className="mb-2"
                 ),
                 html.Div(id='perf-spatial-controls', style={'display': 'none'}, children=[
                     html.Div(id='perf-spatial-ylim-container', children=[
-                        html.Label("Limites do Eixo Y (Mín, Máx)", className="control-label"),
+                        html.Label("Y-Axis Limits (Min, Max)", className="control-label"),
                         html.Div([
-                            dcc.Input(id='perf-spatial-ylim-min', type='number', placeholder='Mín', className="form-control me-2", style={'width': '48%', 'display': 'inline-block'}),
-                            dcc.Input(id='perf-spatial-ylim-max', type='number', placeholder='Máx', className="form-control", style={'width': '48%', 'display': 'inline-block'})
+                            dcc.Input(id='perf-spatial-ylim-min', type='number', placeholder='Min', className="form-control me-2", style={'width': '48%', 'display': 'inline-block'}),
+                            dcc.Input(id='perf-spatial-ylim-max', type='number', placeholder='Max', className="form-control", style={'width': '48%', 'display': 'inline-block'})
                         ], className="mb-2", style={'display': 'flex', 'justifyContent': 'space-between'})
                     ]),
                     dcc.Checklist(
                         id='perf-spatial-distinguish-check',
-                        options=[{'label': ' Distinguir médias por Cor/Símbolo', 'value': 'yes'}],
+                        options=[{'label': ' Distinguish means by Color/Symbol', 'value': 'yes'}],
                         value=[],
                         className="mt-2 mb-2 text-muted",
                         style={'fontSize': '0.9em'}
                     ),
                     dcc.Checklist(
                         id='perf-spatial-jitter-check',
-                        options=[{'label': ' Exibir pontos de dispersão', 'value': 'yes'}],
+                        options=[{'label': ' Show dispersion points', 'value': 'yes'}],
                         value=[],
                         className="mb-2 text-muted",
                         style={'fontSize': '0.9em'}
                     ),
                     dcc.Checklist(
                         id='perf-spatial-heatmap-check',
-                        options=[{'label': ' Exibir Heatmap de Significância', 'value': 'yes'}],
+                        options=[{'label': ' Show Significance Heatmap', 'value': 'yes'}],
                         value=[],
                         className="mb-2 text-muted",
                         style={'fontSize': '0.9em'}
@@ -1237,7 +1282,7 @@ def get_performance_layout():
                     html.Div(id='perf-spatial-color-sig-check-container', children=[
                         dcc.Checklist(
                             id='perf-spatial-color-sig-check',
-                            options=[{'label': ' Colorir barras de significância por tipo de comparação', 'value': 'yes'}],
+                            options=[{'label': ' Color significance brackets by comparison type', 'value': 'yes'}],
                             value=['yes'],
                             className="mb-2 text-muted",
                             style={'fontSize': '0.9em'}
@@ -1246,7 +1291,7 @@ def get_performance_layout():
                     html.Div(id='perf-spatial-color-markers-check-container', children=[
                         dcc.Checklist(
                             id='perf-spatial-color-markers-check',
-                            options=[{'label': ' Colorir markers por grupo', 'value': 'yes'}],
+                            options=[{'label': ' Color markers by group', 'value': 'yes'}],
                             value=['yes'],
                             className="mb-2 text-muted",
                             style={'fontSize': '0.9em'}
@@ -1256,70 +1301,70 @@ def get_performance_layout():
             ]),
             
             html.Div(id='perf-alpha-container', style={'display': 'none'}, children=[
-                html.Label("Nível de Significância (Alpha)", className="control-label"),
+                html.Label("Significance Level (Alpha)", className="control-label"),
                 dcc.Input(id='perf-alpha-input', type='number', value=0.05, min=0.001, max=0.1, step=0.01, className="form-control mb-3")
             ]),
  
             html.Div(id='perf-interaction-check-container', children=[
                 dcc.Checklist(
                     id='perf-interaction-check',
-                    options=[{'label': ' Plotar Interaction Plot', 'value': 'yes'}],
+                    options=[{'label': ' Plot Interaction Plot', 'value': 'yes'}],
                     value=[],
                     className="mb-2"
                 ),
                 dcc.Checklist(
                     id='perf-hybrid-check',
-                    options=[{'label': ' Plotar Gráfico Híbrido (Dispersão + Interação)', 'value': 'yes'}],
+                    options=[{'label': ' Plot Hybrid Plot (Dispersion + Interaction)', 'value': 'yes'}],
                     value=[],
                     className="mb-2"
                 ),
             ]),
             html.Div(id='perf-interaction-controls', style={'display': 'none'}, children=[
-                html.Label("Eixo X", className="control-label"),
+                html.Label("X Axis", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-x', options=[], className="mb-2 dash-dropdown"),
-                html.Label("Eixo Y", className="control-label"),
+                html.Label("Y Axis", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-y', options=Y_VARIABLES, value='Desempenho', className="mb-2 dash-dropdown"),
-                html.Label("Linha", className="control-label"),
+                html.Label("Line", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-line', options=[], className="mb-2 dash-dropdown"),
                 html.Label("Facet", className="control-label"),
                 dcc.Dropdown(id='perf-interaction-facet', options=[{'label': 'None', 'value': 'None'}], value='None', className="mb-2 dash-dropdown")
             ]),
             
             html.Hr(),
-            html.Button("Executar Análise", id='perf-run-btn', className="btn btn-primary w-100 mt-2"),
+            html.Button("Run Analysis", id='perf-run-btn', className="btn btn-primary w-100 mt-2"),
             html.Div(id='perf-controls-error', className="text-danger mt-2")
         ], className="sidebar"),
         
         html.Div([
             html.Div(id='perf-normality-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("Teste de Normalidade", className="text-info"),
+                html.H4("Normality Test", className="text-info"),
                 html.Div(id='perf-normality-output')
             ]),
             
             html.Div(id='perf-anova-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("ANOVA e Post-Hoc", className="text-warning"),
+                html.H4("ANOVA & Post-Hoc", className="text-warning"),
                 html.Div(id='perf-anova-table-output', style={'overflowX': 'auto'}),
                 dcc.Graph(id='perf-anova-dotplot', style={'minHeight': '500px', 'marginTop': '15px'}),
                 html.Div(id='perf-anova-heatmap-container', style={'display': 'none'}, children=[
-                    html.H5("Heatmap de Significância (Tukey HSD)", className="text-primary mt-3"),
+                    html.H5("Significance Heatmap (Tukey HSD)", className="text-primary mt-3"),
                     dcc.Graph(id='perf-anova-heatmap', style={'height': '500px', 'marginTop': '10px'})
                 ]),
                 html.Details([
-                    html.Summary("Tabela de Resultados Post-Hoc (Significativos)", style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#0d6efd', 'marginTop': '15px'}),
+                    html.Summary("Post-Hoc Results Table (Significant)", style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#0d6efd', 'marginTop': '15px'}),
                     html.Div(id='perf-anova-posthoc-output', className="mt-2 bg-light p-2 rounded", style={'overflowX': 'auto'})
                 ])
             ]),
             
             html.Div(id='perf-spatial-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("Comparação de Proporções Espaciais entre Grupos", className="text-primary mb-1"),
-                html.P("Comparação estatística (Teste-t de Welch e Tukey Post-Hoc) entre os subgrupos experimentais para Proporção Espacial X e Proporção Espacial Y.", className="text-muted small mb-3"),
+                html.H4("Between-Group Spatial Proportions Comparison", className="text-primary mb-1"),
+                html.P("Statistical comparison (Welch's t-test and Tukey Post-Hoc) between experimental subgroups for Spatial Proportion X and Spatial Proportion Y.", className="text-muted small mb-3"),
                 
                 # Bloco 1: Proporção Espacial X (largura total)
                 html.Div([
-                    html.H5("Proporção Espacial X", className="text-secondary fw-bold"),
+                    html.H5("Spatial Proportion X", className="text-secondary fw-bold"),
                     dcc.Graph(id='perf-spatial-x-plot', style={'minHeight': '500px', 'marginTop': '10px'}),
                     html.Div(id='perf-spatial-x-heatmap-container', style={'display': 'none'}, children=[
-                        html.H6("Heatmap de Significância (Proporção Espacial X)", className="text-primary mt-3"),
+                        html.H6("Significance Heatmap (Spatial Proportion X)", className="text-primary mt-3"),
                         dcc.Graph(id='perf-spatial-x-heatmap', style={'height': '400px', 'marginTop': '5px'})
                     ]),
                     html.Div(id='perf-spatial-x-stats', className="p-3 border rounded bg-light mt-2 mb-4")
@@ -1329,10 +1374,10 @@ def get_performance_layout():
                 
                 # Bloco 2: Proporção Espacial Y (largura total)
                 html.Div([
-                    html.H5("Proporção Espacial Y", className="text-secondary fw-bold"),
+                    html.H5("Spatial Proportion Y", className="text-secondary fw-bold"),
                     dcc.Graph(id='perf-spatial-y-plot', style={'minHeight': '500px', 'marginTop': '10px'}),
                     html.Div(id='perf-spatial-y-heatmap-container', style={'display': 'none'}, children=[
-                        html.H6("Heatmap de Significância (Proporção Espacial Y)", className="text-primary mt-3"),
+                        html.H6("Significance Heatmap (Spatial Proportion Y)", className="text-primary mt-3"),
                         dcc.Graph(id='perf-spatial-y-heatmap', style={'height': '400px', 'marginTop': '5px'})
                     ]),
                     html.Div(id='perf-spatial-y-stats', className="p-3 border rounded bg-light mt-2")
@@ -1345,7 +1390,7 @@ def get_performance_layout():
             ]),
 
             html.Div(id='perf-hybrid-result-card', style={'display': 'none'}, className="card p-3 mb-3 shadow-sm", children=[
-                html.H4("Gráfico Híbrido (Dispersão + Interação)", className="text-primary"),
+                html.H4("Hybrid Plot (Dispersion + Interaction)", className="text-primary"),
                 dcc.Graph(id='perf-hybrid-plot', style={'height': '550px'})
             ])
             
@@ -1516,8 +1561,8 @@ def update_math_model(prot, x_mode, fase, channels, y_cols):
         
         # Build human-readable X mode description
         x_mode_labels = {
-            'psd_full_norm': 'PSD Completo Normalizado (Baseline)',
-            'psd_2em2_norm': 'PSD Potência de 2 em 2 Hz Normalizado'
+            'psd_full_norm': 'Full Normalized PSD (Baseline)',
+            'psd_2em2_norm': 'Normalized 2 Hz PSD Power'
         }
         x_mode_label = x_mode_labels.get(x_mode, x_mode)
         
@@ -1525,11 +1570,11 @@ def update_math_model(prot, x_mode, fase, channels, y_cols):
         if x_mode == 'psd_2em2_norm':
             n_channels = len(channels) if channels else 0
             n_freq_bins = F // n_channels if n_channels > 0 else F
-            x_desc = f"Potência PSD normalizada em bins de 2 Hz (0–50 Hz → {n_freq_bins} bins × {n_channels} canais = {F} features)"
+            x_desc = f"Normalized PSD power in 2 Hz bins (0-50 Hz -> {n_freq_bins} bins x {n_channels} channels = {F} features)"
         else:
             n_channels = len(channels) if channels else 0
             n_freq_pts = F // n_channels if n_channels > 0 else F
-            x_desc = f"PSD completo normalizado ({n_freq_pts} pontos de freq × {n_channels} canais = {F} features)"
+            x_desc = f"Full normalized PSD ({n_freq_pts} frequency points x {n_channels} channels = {F} features)"
         
         math_str = rf'''
 $$
@@ -1550,14 +1595,14 @@ y_{{{T},1}} & \dots & y_{{{T},{C}}}
 \end{{bmatrix}} \in \mathbb{{R}}^{{{T} \times {C}}}
 $$
 
-**Onde:**
-* **T = {T}**: Número total de *trials* analisados do protocolo {prot}.
-* **F = {F}**: Número de *features* em $X$.
-* **Modo X**: {x_mode_label}
-* **Descrição X**: {x_desc}
-* **C = {C}**: Variáveis comportamentais integradas em $Y$.
-* $x_{{ij}}$ = valor oriundo no espaço PSD na banda/frequência *j* da execução *i*.
-* $y_{{ic}}$ = escore medido na target *c* da execução *i*.
+**Where:**
+* **T = {T}**: Total number of analyzed *trials* for protocol {prot}.
+* **F = {F}**: Number of *features* in $X$.
+* **X Mode**: {x_mode_label}
+* **X Description**: {x_desc}
+* **C = {C}**: Behavioral variables integrated in $Y$.
+* $x_{{ij}}$ = PSD value at band/frequency *j* of trial *i*.
+* $y_{{ic}}$ = measured score for target *c* of trial *i*.
 '''
         return dcc.Markdown(math_str, mathjax=True)
     except Exception as e:
@@ -1638,14 +1683,14 @@ def update_supervision_options(prot, current_values, ids):
             {'label': 'Group + Overlap', 'value': 'group_overlap'},
             {'label': 'Group + Comp + Overlap', 'value': 'all'}
         ]
-        default_val = 'group'
+        default_val = 'group_comp'
     elif prot == 'B':
         options = [
             {'label': 'Group (CF/SF)', 'value': 'group'},
             {'label': 'Complexity', 'value': 'complexity'},
             {'label': 'Group + Complexity', 'value': 'group_comp'}
         ]
-        default_val = 'group'
+        default_val = 'group_comp'
     else:
         options = [
             {'label': 'Complexity', 'value': 'complexity'}
@@ -1655,6 +1700,53 @@ def update_supervision_options(prot, current_values, ids):
     ret_options = [options for _ in ids]
     ret_values = [default_val if v not in [opt['value'] for opt in options] else v for v in current_values]
     
+    return ret_options, ret_values
+
+@app.callback(
+    [Output({'type': 'color-dropdown', 'index': ALL}, 'options'),
+     Output({'type': 'color-dropdown', 'index': ALL}, 'value')],
+    [Input('protocol-dropdown', 'value')],
+    [State({'type': 'color-dropdown', 'index': ALL}, 'value'),
+     State({'type': 'color-dropdown', 'index': ALL}, 'id')]
+)
+def update_color_options(prot, current_values, ids):
+    if not ids:
+        return dash.no_update
+    
+    if prot == 'A':
+        options = [
+            {'label': 'Group (CV/SV)', 'value': 'group'},
+            {'label': 'Complexity', 'value': 'complexity'},
+            {'label': 'Overlap (Prot A)', 'value': 'overlap'},
+            {'label': 'Group + Complexity', 'value': 'group_comp'},
+            {'label': 'Group + Overlap', 'value': 'group_overlap'},
+            {'label': 'Complexity + Overlap', 'value': 'comp_overlap'},
+            {'label': 'Group + Comp + Overlap', 'value': 'all'}
+        ]
+        default_val = 'group_comp'
+    elif prot == 'B':
+        options = [
+            {'label': 'Group (CF/SF)', 'value': 'group'},
+            {'label': 'Complexity', 'value': 'complexity'},
+            {'label': 'Group + Complexity', 'value': 'group_comp'}
+        ]
+        default_val = 'group_comp'
+    else:
+        options = [
+            {'label': 'Complexity', 'value': 'complexity'}
+        ]
+        default_val = 'complexity'
+        
+    ret_options = [options for _ in ids]
+    ret_values = []
+    for v in current_values:
+        if prot == 'C':
+            ret_values.append('complexity')
+        elif v not in [opt['value'] for opt in options] or v == 'complexity':
+            ret_values.append(default_val)
+        else:
+            ret_values.append(v)
+            
     return ret_options, ret_values
 
 @app.callback(
@@ -1985,9 +2077,9 @@ def update_channels_psd(prot, current_value):
 )
 def update_fase_options_analysis(prot):
     if prot == 'C':
-        opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+        opts = [{'label': 'Exploration', 'value': 'estimulacao'}, {'label': 'Execution', 'value': 'execucao'}]
     else:
-        opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+        opts = [{'label': 'Stimulation', 'value': 'estimulacao'}, {'label': 'Execution', 'value': 'execucao'}]
     return opts, 'estimulacao'
 
 @app.callback(
@@ -1997,9 +2089,9 @@ def update_fase_options_analysis(prot):
 )
 def update_fase_options_psd(prot):
     if prot == 'C':
-        opts = [{'label': 'Exploração', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+        opts = [{'label': 'Exploration', 'value': 'estimulacao'}, {'label': 'Execution', 'value': 'execucao'}]
     else:
-        opts = [{'label': 'Estimulação', 'value': 'estimulacao'}, {'label': 'Execução', 'value': 'execucao'}]
+        opts = [{'label': 'Stimulation', 'value': 'estimulacao'}, {'label': 'Execution', 'value': 'execucao'}]
     return opts, 'estimulacao'
 
 # --- Topoplot Callbacks Consolidado ---
@@ -2026,15 +2118,15 @@ def update_topo_protocol_options(prot):
     # Fase options logic (A/B share same, C differs)
     if prot == 'C':
         fase_opts = [
-            {'label': 'Exploração', 'value': 'estimulacao'}, 
-            {'label': 'Execução', 'value': 'execucao'},
-            {'label': 'Ambos', 'value': 'Ambos'}
+            {'label': 'Exploration', 'value': 'estimulacao'}, 
+            {'label': 'Execution', 'value': 'execucao'},
+            {'label': 'Both', 'value': 'Ambos'}
         ]
     else:
         fase_opts = [
-            {'label': 'Estimulação', 'value': 'estimulacao'}, 
-            {'label': 'Execução', 'value': 'execucao'},
-            {'label': 'Ambos', 'value': 'Ambos'}
+            {'label': 'Stimulation', 'value': 'estimulacao'}, 
+            {'label': 'Execution', 'value': 'execucao'},
+            {'label': 'Both', 'value': 'Ambos'}
         ]
     
     fase_val = 'estimulacao'
@@ -2042,17 +2134,17 @@ def update_topo_protocol_options(prot):
     if prot == 'A':
         style_group = {'display': 'block'}
         group_opts = [
-            {'label': 'CV', 'value': 'CV'}, 
-            {'label': 'SV', 'value': 'SV'},
-            {'label': 'Ambos', 'value': 'Ambos'}
+            {'label': 'V+', 'value': 'CV'}, 
+            {'label': 'V-', 'value': 'SV'},
+            {'label': 'Both', 'value': 'Ambos'}
         ]
         group_val = 'CV'
     elif prot == 'B':
         style_group = {'display': 'block'}
         group_opts = [
-            {'label': 'CF', 'value': 'CF'}, 
-            {'label': 'SF', 'value': 'SF'},
-            {'label': 'Ambos', 'value': 'Ambos'}
+            {'label': 'F+', 'value': 'CF'}, 
+            {'label': 'F-', 'value': 'SF'},
+            {'label': 'Both', 'value': 'Ambos'}
         ]
         group_val = 'CF'
     elif prot == 'C':
@@ -2080,8 +2172,8 @@ def update_topo_scale_options(prots, plot_count, current_val):
 
     if plot_count > 1:
         options = [
-            {'label': 'Escala por banda (Global por Banda)', 'value': 'global_per_band'},
-            {'label': 'Escala comum (Global Absoluto)', 'value': 'global_absolute'}
+            {'label': 'Band Scale (Global per Band)', 'value': 'global_per_band'},
+            {'label': 'Common Scale (Global Absolute)', 'value': 'global_absolute'}
         ]
         # Ensure current_val is valid for the new options
         if current_val not in ['global_per_band', 'global_absolute']:
@@ -2094,14 +2186,14 @@ def update_topo_scale_options(prots, plot_count, current_val):
     has_ab = any(p in ['A', 'B'] for p in active_prots)
     
     base_options = [
-        {'label': 'Global (Todos os Protocolos)', 'value': 'global'},
-        {'label': 'Por Protocolo', 'value': 'protocol'},
-        {'label': 'Por Protocolo e Fase', 'value': 'context'},
-        {'label': 'Independente (Por Banda)', 'value': 'independent'}
+        {'label': 'Global (All Protocols)', 'value': 'global'},
+        {'label': 'By Protocol', 'value': 'protocol'},
+        {'label': 'By Protocol and Phase', 'value': 'context'},
+        {'label': 'Independent (Per Band)', 'value': 'independent'}
     ]
     
     if has_ab:
-        base_options.insert(3, {'label': 'Por Protocolo, Fase e Grupo', 'value': 'group_context'})
+        base_options.insert(3, {'label': 'By Protocol, Phase and Group', 'value': 'group_context'})
     
     if has_baseline:
         base_options = [opt for opt in base_options if opt['value'] not in ['context', 'group_context']]
@@ -2283,26 +2375,26 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
         # Build panel description titles using format_panel_label
         from topoplot_engine import format_panel_label
         panel_titles = [format_panel_label(p) for p in panels_data]
-        compare_title = "Modo Comparação: " + " VS ".join(panel_titles)
+        compare_title = "Comparison Mode: " + " VS ".join(panel_titles)
         
         from dash import html
         if err:
             outputs.append(html.Div([
                 html.H4(compare_title, className="text-center"),
-                html.Div(f"Erro: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
+                html.Div(f"Error: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
             ], className="card p-3 shadow-sm"))
             messages.append(f"Comparison Grid Failed: {err}")
         else:
             outputs.append(html.Div([
                 html.H4(compare_title, className="text-center text-primary mb-2"),
-                html.P("Comparação das faixas de frequência (linhas) lado a lado entre os painéis (colunas).", className="text-center text-muted small"),
+                html.P("Comparison of frequency bands (rows) side by side between panels (columns).", className="text-center text-muted small"),
                 html.Img(src=f"data:image/png;base64,{img_b64}", style={'width':'100%', 'height':'auto'})
             ], className="card p-3 shadow-sm"))
             messages.append("Comparison Grid Rendered Successfully.")
             
             # Button next to Quick Guide
             download_buttons.append(html.Div([
-                html.Button("📥 Salvar Comparação", id={'type': 'topo-download-btn', 'index': 'compare_grid'}, className="btn btn-sm btn-outline-primary"),
+                html.Button("📥 Save Comparison", id={'type': 'topo-download-btn', 'index': 'compare_grid'}, className="btn btn-sm btn-outline-primary"),
                 dcc.Store(id={'type': 'topo-img-store', 'index': 'compare_grid'}, data=img_b64),
                 dcc.Download(id={'type': 'topo-download-link', 'index': 'compare_grid'})
             ]))
@@ -2331,21 +2423,24 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                 vmin=common_vmin, vmax=common_vmax, band_limits=band_limits
             )
             
-            title_norm = " Normalizado" if is_norm else ""
-            title_group = f" - Grupo {group}" if prot in ['A', 'B'] else ""
+            grp_disp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-', 'Ambos': 'Both'}
+            grp_disp = grp_disp_map.get(group, group)
+            title_norm = " (Normalized)" if is_norm else ""
+            title_group = f" - Group {grp_disp}" if prot in ['A', 'B'] else ""
             title_scale = "(dB)" if scale_db else "(Linear)"
             
             fase_str = "N/A"
             if fase:
-                fase_str = fase.capitalize()
+                fase_en_map = {'estimulacao': 'Exploration' if prot == 'C' else 'Stimulation', 'execucao': 'Execution', 'Ambos': 'Both'}
+                fase_str = fase_en_map.get(fase, fase.capitalize())
                 
-            panel_title = f"Protocolo {prot}{title_norm} | Fase: {fase_str}{title_group} {title_scale}"
+            panel_title = f"Protocol {prot}{title_norm} | Phase: {fase_str}{title_group} {title_scale}"
             
             from dash import html
             if err:
                 outputs.append(html.Div([
                     html.H4(panel_title, className="text-center"),
-                    html.Div(f"Erro: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
+                    html.Div(f"Error: {err}", className="alert alert-danger mx-auto mt-2", style={'maxWidth': '600px'})
                 ], className="card p-3 shadow-sm"))
                 messages.append(f"Panel {i+1} Failed: {err}")
             else:
@@ -2362,7 +2457,7 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                 }
                 from topoplot_engine import format_panel_label
                 short_p = format_panel_label(panel_info, short=True)
-                btn_label = f"📥 Salvar {short_p}" if panels > 1 else "📥 Salvar Topoplot"
+                btn_label = f"📥 Save {short_p}" if panels > 1 else "📥 Save Topoplot"
                 download_buttons.append(html.Div([
                     html.Button(btn_label, id={'type': 'topo-download-btn', 'index': f"panel_{short_p}"}, className="btn btn-sm btn-outline-primary"),
                     dcc.Store(id={'type': 'topo-img-store', 'index': f"panel_{short_p}"}, data=img_b64),
@@ -2389,28 +2484,29 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                 anova_details_children = []
                 for band, channels in anova_stats.items():
                     if channels:
-                        anova_details_children.append(html.B(f"{band.capitalize()}: ", className="text-warning"))
+                        band_disp = 'Alpha' if band.lower() in ['alfa', 'alpha'] else band.capitalize()
+                        anova_details_children.append(html.B(f"{band_disp}: ", className="text-warning"))
                         anova_details_children.append(html.Span(", ".join(channels)))
                         anova_details_children.append(html.Br())
                 
                 if not anova_details_children:
-                    anova_details_children = [html.I("Nenhum canal sobreviveu à correção FDR (p < 0.05).")]
+                    anova_details_children = [html.I("No channels survived FDR correction (p < 0.05).")]
 
                 outputs.append(html.Div([
-                    html.H4("Análise Global (One-Way ANOVA)", className="text-center text-warning mb-2"),
-                    html.P("Mapa de probabilidade (1-p). Cores quentes e marcações com 'x' indicam variação significativa entre os 3 painéis (corrigido por FDR).", className="text-center text-muted small"),
+                    html.H4("Global Analysis (One-Way ANOVA)", className="text-center text-warning mb-2"),
+                    html.P("Probability map (1-p). Hot colors and 'x' marks indicate significant variation across the 3 panels (FDR corrected).", className="text-center text-muted small"),
                     html.Img(src=f"data:image/png;base64,{anova_img}", style={'width':'100%', 'height':'auto'}),
                     html.Details([
-                        html.Summary("📊 Detalhes Estatísticos (ANOVA Global + FDR)", 
+                        html.Summary("📊 Statistical Details (Global ANOVA + FDR)", 
                                      style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#ffc107', 'marginTop': '10px'}),
                         html.Div(anova_details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
                     ], className="mt-2")
                 ], className="card p-3 shadow-sm border-warning", style={'borderWidth': '2px', 'marginTop': '20px'}))
-                messages.append("ANOVA Global Rendered.")
+                messages.append("Global ANOVA Rendered.")
                 
                 # Button next to Quick Guide
                 download_buttons.append(html.Div([
-                    html.Button("📥 Salvar ANOVA", id={'type': 'topo-download-btn', 'index': 'anova_map'}, className="btn btn-sm btn-outline-warning"),
+                    html.Button("📥 Save ANOVA", id={'type': 'topo-download-btn', 'index': 'anova_map'}, className="btn btn-sm btn-outline-warning"),
                     dcc.Store(id={'type': 'topo-img-store', 'index': 'anova_map'}, data=anova_img),
                     dcc.Download(id={'type': 'topo-download-link', 'index': 'anova_map'})
                 ]))
@@ -2437,19 +2533,20 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                 details_children = []
                 for band, channels in stats_data.items():
                     if channels:
-                        details_children.append(html.B(f"{band.capitalize()}: ", className="text-primary"))
+                        band_disp = 'Alpha' if band.lower() in ['alfa', 'alpha'] else band.capitalize()
+                        details_children.append(html.B(f"{band_disp}: ", className="text-primary"))
                         ch_list = ", ".join([f"{c['canal']} (p={c['p']:.3f})" for c in channels])
                         details_children.append(html.Span(ch_list))
                         details_children.append(html.Br())
                 
                 if not details_children:
-                    details_children = [html.I(f"Nenhum canal significativo encontrado (p < 0.05).")]
+                    details_children = [html.I("No significant channels found (p < 0.05).")]
 
                 outputs.append(html.Div([
-                    html.H4(f"Comparação: {label1} vs {label2}", className="text-center text-danger mb-2"),
+                    html.H4(f"Comparison: {label1} vs {label2}", className="text-center text-danger mb-2"),
                     html.Img(src=f"data:image/png;base64,{img_comp}", style={'width':'100%', 'height':'auto'}),
                     html.Details([
-                        html.Summary(f"📊 Detalhes Estatísticos ({short1} vs {short2})", 
+                        html.Summary(f"📊 Statistical Details ({short1} vs {short2})", 
                                      style={'cursor': 'pointer', 'fontWeight': 'bold', 'color': '#dc3545', 'marginTop': '10px'}),
                         html.Div(details_children, className="p-2 border rounded bg-light mt-2", style={'fontSize': '0.85em'})
                     ], className="mt-2")
@@ -2458,7 +2555,7 @@ def run_topoplots(n_clicks, prots, fases, groups, scales, norms, plot_count, sca
                 
                 # Button next to Quick Guide
                 download_buttons.append(html.Div([
-                    html.Button(f"📥 Salvar Comp. {short1} vs {short2}", id={'type': 'topo-download-btn', 'index': f"comp_{comp_key}"}, className="btn btn-sm btn-outline-danger"),
+                    html.Button(f"📥 Save Comp. {short1} vs {short2}", id={'type': 'topo-download-btn', 'index': f"comp_{comp_key}"}, className="btn btn-sm btn-outline-danger"),
                     dcc.Store(id={'type': 'topo-img-store', 'index': f"comp_{comp_key}"}, data=img_comp),
                     dcc.Download(id={'type': 'topo-download-link', 'index': f"comp_{comp_key}"})
                 ]))
@@ -2542,17 +2639,17 @@ def update_perf_options(prot):
     if prot == 'C':
         inter_check_style = {'display': 'none'}
     if prot == 'A':
-        norm_opts = [{'label': 'CV', 'value': 'CV'}, {'label': 'SV', 'value': 'SV'}, {'label': 'Ambos', 'value': 'Ambos'}]
-        indep_opts = [{'label': 'Complexidade', 'value': 'Complexidade'}, {'label': 'Grupo', 'value': 'grupo'}, {'label': 'Overlap', 'value': 'Overlap'}]
+        norm_opts = [{'label': 'V+', 'value': 'CV'}, {'label': 'V-', 'value': 'SV'}, {'label': 'Both', 'value': 'Ambos'}]
+        indep_opts = [{'label': 'Complexity', 'value': 'Complexidade'}, {'label': 'Group', 'value': 'grupo'}, {'label': 'Overlap', 'value': 'Overlap'}]
         indep_val = ['Complexidade', 'grupo', 'Overlap']
     elif prot == 'B':
-        norm_opts = [{'label': 'CF', 'value': 'CF'}, {'label': 'SF', 'value': 'SF'}, {'label': 'Ambos', 'value': 'Ambos'}]
-        indep_opts = [{'label': 'Complexidade', 'value': 'Complexidade'}, {'label': 'Grupo', 'value': 'grupo'}]
+        norm_opts = [{'label': 'F+', 'value': 'CF'}, {'label': 'F-', 'value': 'SF'}, {'label': 'Both', 'value': 'Ambos'}]
+        indep_opts = [{'label': 'Complexity', 'value': 'Complexidade'}, {'label': 'Group', 'value': 'grupo'}]
         indep_val = ['Complexidade', 'grupo']
     else:
         norm_opts = [{'label': 'N/A', 'value': 'ALL'}]
         norm_style = {'display': 'none'}
-        indep_opts = [{'label': 'Complexidade', 'value': 'Complexidade'}]
+        indep_opts = [{'label': 'Complexity', 'value': 'Complexidade'}]
         indep_val = ['Complexidade']
         
     ix_opts = indep_opts
@@ -2599,7 +2696,7 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                                         plot_interactive_interaction, plot_interactive_hybrid, run_spatial_proportions_analysis)
         csv_path = os.path.join(os.path.dirname(__file__), 'data', f'df_prot{prot}_performance.csv')
         if not os.path.exists(csv_path):
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"Arquivo não encontrado: {csv_path}"
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, f"File not found: {csv_path}"
         df = pd.read_csv(csv_path)
         if prot == 'C' and 'Fase' in df.columns:
             df = df[df['Fase'] == 'Fase Execucao'].copy()
@@ -2640,9 +2737,12 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
             if norm_err: norm_out = html.Div(norm_err, className="alert alert-danger")
             else:
                 s, k = norm_res['Shapiro-Wilk'], norm_res['Kolmogorov-Smirnov']
-                def b(is_norm): return html.Span("✅ Normal", className="badge bg-success ms-2") if is_norm else html.Span("❌ Não Normal", className="badge bg-danger ms-2")
+                def b(is_norm): return html.Span("✅ Normal", className="badge bg-success ms-2") if is_norm else html.Span("❌ Not Normal", className="badge bg-danger ms-2")
+                grp_disp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-', 'Ambos': 'Both'}
+                grp_disp = grp_disp_map.get(norm_group, norm_group if prot in ['A','B'] else 'N/A')
+                norm_var_disp = VAR_NAME_EN.get(norm_var, norm_var)
                 norm_out = html.Div([
-                    html.H5(f"Testando: {norm_var} | Grupo: {norm_group if prot in ['A','B'] else 'N/A'}", className="mb-3"),
+                    html.H5(f"Testing: {norm_var_disp} | Group: {grp_disp}", className="mb-3"),
                     html.Div([html.Strong("Shapiro-Wilk:"), html.Span(f" W = {s['stat']:.4f}, p = {s['p_value']:.4e}", className="ms-2"), b(s['is_normal'])], className="mb-2"),
                     html.Div([html.Strong("Kolmogorov-Smirnov:"), html.Span(f" D = {k['stat']:.4f}, p = {k['p_value']:.4e}", className="ms-2"), b(k['is_normal'])], className="mb-2")
                 ])
@@ -2652,18 +2752,18 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
             anova_style = {'display': 'block'}
             if anova_err: anova_tbl = html.Div(anova_err, className="alert alert-danger")
             elif anova_res is not None:
-                anova_res = anova_res.reset_index().rename(columns={'index': 'Termo', 'sum_sq': 'Soma dos Quadrados', 'PR(>F)': 'p-valor'})
-                for col in ['Soma dos Quadrados', 'df', 'F', 'p-valor']:
+                anova_res = anova_res.reset_index().rename(columns={'index': 'Term', 'sum_sq': 'Sum of Squares', 'PR(>F)': 'p-value'})
+                for col in ['Sum of Squares', 'df', 'F', 'p-value']:
                     if col in anova_res.columns: anova_res[col] = anova_res[col].apply(lambda x: f"{x:.4f}" if pd.notnull(x) else "")
                 from dash import dash_table
                 anova_tbl = html.Div([
-                    html.P("👆 Clique em uma linha da tabela acima para atualizar o gráfico e os resultados do Post-Hoc abaixo.", className="text-muted small mb-2"),
+                    html.P("👆 Click a row in the table above to update the plot and Post-Hoc results below.", className="text-muted small mb-2"),
                     dash_table.DataTable(
                         id='perf-anova-data-table', data=anova_res.to_dict('records'),
                         columns=[{'name': i, 'id': i} for i in anova_res.columns],
                         style_cell={'textAlign': 'left', 'padding': '10px'},
                         style_header={'fontWeight': 'bold', 'backgroundColor': '#f8f9fa'},
-                        style_data_conditional=[{'if': {'filter_query': '{p-valor} < '+str(alpha), 'column_id': 'p-valor'}, 'backgroundColor': '#d4edda', 'fontWeight': 'bold'}]
+                        style_data_conditional=[{'if': {'filter_query': '{p-value} < '+str(alpha), 'column_id': 'p-value'}, 'backgroundColor': '#d4edda', 'fontWeight': 'bold'}]
                     )
                 ])
 
@@ -2689,30 +2789,30 @@ def run_performance_analysis(n_clicks, prot, norm_chk, norm_var, norm_group,
                         if st.get('err'):
                             return html.Div(st['err'], className="alert alert-warning")
                         is_sig = st['is_sig']
-                        sig_badge = html.Span("✅ Estatisticamente Significativo", className="badge bg-success ms-2") if is_sig else html.Span("❌ Não Significativo (ns)", className="badge bg-danger ms-2")
+                        sig_badge = html.Span("✅ Statistically Significant", className="badge bg-success ms-2") if is_sig else html.Span("❌ Not Significant (ns)", className="badge bg-danger ms-2")
                         
                         return html.Div([
                             html.Div([
-                                html.Strong(f"Resultado do Teste-t de Welch ({var_label}):"),
+                                html.Strong(f"Welch's t-test Result ({var_label}):"),
                                 sig_badge
                             ], className="d-flex justify-content-between align-items-center mb-2"),
                             html.Ul([
-                                html.Li([html.B(f"{st['g1_name']}: "), f"Média = {st['g1_mean']:.4f} ± {st['g1_std']:.4f} (n = {st['g1_n']})"]),
-                                html.Li([html.B(f"{st['g2_name']}: "), f"Média = {st['g2_mean']:.4f} ± {st['g2_std']:.4f} (n = {st['g2_n']})"]),
-                                html.Li([html.B("Diferença de Médias (Δ): "), f"{st['delta']:+.4f}"]),
-                                html.Li([html.B("Estatística T: "), f"T = {st['t_stat']:.4f}"]),
-                                html.Li([html.B("p-valor: "), f"p = {st['p_val']:.4e} ({st['stars']}) [α = {alpha}]"])
+                                html.Li([html.B(f"{st['g1_name']}: "), f"Mean = {st['g1_mean']:.4f} ± {st['g1_std']:.4f} (n = {st['g1_n']})"]),
+                                html.Li([html.B(f"{st['g2_name']}: "), f"Mean = {st['g2_mean']:.4f} ± {st['g2_std']:.4f} (n = {st['g2_n']})"]),
+                                html.Li([html.B("Mean Difference (Δ): "), f"{st['delta']:+.4f}"]),
+                                html.Li([html.B("T-Statistic: "), f"T = {st['t_stat']:.4f}"]),
+                                html.Li([html.B("p-value: "), f"p = {st['p_val']:.4e} ({st['stars']}) [α = {alpha}]"])
                             ], className="mb-0 ps-3 small")
                         ])
                     
                     spatial_x_fig = fig_x
-                    spatial_x_stats = make_spatial_stats_card(st_x, "Proporção Espacial X")
+                    spatial_x_stats = make_spatial_stats_card(st_x, "Spatial Proportion X")
                     if heatmap_s:
                         spatial_x_hm_style = {'display': 'block'}
                         spatial_x_hm_fig = hm_x
                         
                     spatial_y_fig = fig_y
-                    spatial_y_stats = make_spatial_stats_card(st_y, "Proporção Espacial Y")
+                    spatial_y_stats = make_spatial_stats_card(st_y, "Spatial Proportion Y")
                     if heatmap_s:
                         spatial_y_hm_style = {'display': 'block'}
                         spatial_y_hm_fig = hm_y
@@ -2783,17 +2883,18 @@ def update_x_order_options(protocol, val1, val2, val3):
 
     # Calculate options dynamically to avoid duplicates
     # For order-1: can be any of all_factors
-    opt1 = [{'label': f, 'value': f} for f in all_factors]
+    factor_labels = {'Complexidade': 'Complexity', 'grupo': 'Group', 'Overlap': 'Overlap'}
+    opt1 = [{'label': factor_labels.get(f, f), 'value': f} for f in all_factors]
     
     # For order-2: all_factors minus val1
     rem2 = [f for f in all_factors if f != val1]
-    opt2 = [{'label': f, 'value': f} for f in rem2]
+    opt2 = [{'label': factor_labels.get(f, f), 'value': f} for f in rem2]
     if val2 not in rem2:
         val2 = rem2[0] if rem2 else None
         
     # For order-3: all_factors minus val1 and val2
     rem3 = [f for f in rem2 if f != val2]
-    opt3 = [{'label': f, 'value': f} for f in rem3]
+    opt3 = [{'label': factor_labels.get(f, f), 'value': f} for f in rem3]
     if val3 not in rem3:
         val3 = rem3[0] if rem3 else None
 
@@ -2814,21 +2915,24 @@ def update_x_order_options(protocol, val1, val2, val3):
      State('perf-anova-color-sig-check', 'value'), State('perf-anova-color-markers-check', 'value')]
 )
 def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatmap_chk, ylim_min, ylim_max, order1, order2, order3, distinguish_val, jitter_val, color_sig_val, color_markers_val):
-    if not table_data: return go.Figure(), go.Figure(), {'display': 'none'}, "Execute a ANOVA primeiro."
+    if not table_data: return go.Figure(), go.Figure(), {'display': 'none'}, "Run ANOVA first."
     alpha = float(str(alpha).replace(',', '.')) if alpha else 0.05
     def get_p(r):
         try:
-            p = r.get('p-valor')
+            p = r.get('p-value', r.get('p-valor'))
             return float(p) if p and str(p).strip() else 1.0
         except: return 1.0
         
-    idx = active_cell['row'] if active_cell else next((i for i, r in enumerate(table_data) if r.get('Termo') not in ['Intercept', 'Residual'] and get_p(r) < alpha), next((i for i, r in enumerate(table_data) if r.get('Termo') not in ['Intercept', 'Residual']), None))
-    if idx is None: return go.Figure(), go.Figure(), {'display': 'none'}, "Nenhum fator analisável encontrado."
-    source_str = table_data[idx]['Termo']
+    def get_term(r):
+        return r.get('Term', r.get('Termo', ''))
+        
+    idx = active_cell['row'] if active_cell else next((i for i, r in enumerate(table_data) if get_term(r) not in ['Intercept', 'Residual'] and get_p(r) < alpha), next((i for i, r in enumerate(table_data) if get_term(r) not in ['Intercept', 'Residual']), None))
+    if idx is None: return go.Figure(), go.Figure(), {'display': 'none'}, "No analyzable factor found."
+    source_str = get_term(table_data[idx])
     import re; clean = source_str.replace("Q('", "").replace("')", ""); factors = re.findall(r'C\((.*?)\)', clean)
     if not factors:
         factors = [f.strip() for f in clean.split(':') if f.strip() not in ['Intercept', 'Residual']]
-    if not factors: return go.Figure(), go.Figure(), {'display': 'none'}, f"Não é possível fazer Post-Hoc para a linha selecionada: {source_str}."
+    if not factors: return go.Figure(), go.Figure(), {'display': 'none'}, f"Post-Hoc cannot be computed for selected row: {source_str}."
     import os, pandas as pd; from performance_engine import plot_interactive_dot_sig, plot_interactive_significance_heatmap
     csv_path = os.path.join(os.path.dirname(__file__), 'data', f'df_prot{prot}_performance.csv')
     df = pd.read_csv(csv_path)
@@ -2864,7 +2968,8 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatma
     show_jitter = 'yes' in (jitter_val or [])
     color_sig = 'yes' in (color_sig_val or [])
     color_markers = 'yes' in (color_markers_val or [])
-    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_var}) [Fonte: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter, color_sig=color_sig, color_markers=color_markers)
+    target_disp = VAR_NAME_EN.get(target_var, target_var)
+    fig_dot, sig, err = plot_interactive_dot_sig(df, gc, target_var, alpha=alpha, title=f"Post-Hoc: {gc} ({target_disp}) [Source: {source_str}]", anova_table=table_data, ylim=ylim, order=order, distinguish=distinguish, ordered_active=ordered_active, show_jitter=show_jitter, color_sig=color_sig, color_markers=color_markers)
     
     fig_hm = go.Figure()
     hm_style = {'display': 'none'}
@@ -2874,7 +2979,7 @@ def update_posthoc_plot(table_data, active_cell, prot, target_var, alpha, heatma
             hm_style = {'display': 'block'}
             
     if err: return fig_dot, fig_hm, hm_style, html.Div(err, className="alert alert-warning")
-    if not sig: return fig_dot, fig_hm, hm_style, html.Div("Nenhuma diferença significativa encontrada.", className="alert alert-info")
+    if not sig: return fig_dot, fig_hm, hm_style, html.Div("No significant differences found.", className="alert alert-info")
     from dash import dash_table; sdf = pd.DataFrame(sig)
     return fig_dot, fig_hm, hm_style, dash_table.DataTable(data=sdf.to_dict('records'), columns=[{'name': i, 'id': i} for i in sdf.columns], style_cell={'textAlign': 'left', 'padding': '5px'}, style_header={'fontWeight': 'bold', 'backgroundColor': '#f8f9fa'})
 

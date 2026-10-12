@@ -27,15 +27,22 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
     
     comp_map = {'1': 'Easy', '2': 'Medium', '3': 'Hard', '4': 'Easy', '6': 'Medium', '8': 'Hard',
                 'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'}
+    grp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-'}
 
     def get_comp_mapped_series(df):
         raw = df.get('Complexidade', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
         return raw.map(lambda x: comp_map.get(str(x), str(x)))
 
+    def get_grp_mapped_series(df):
+        raw = df.get('grupo', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
+        return raw.map(lambda x: grp_map.get(str(x), str(x)))
+
     # Helper to resolve columns and combinations dynamically
     def get_resolved_series(df, col_name):
         if not col_name or col_name == 'none':
             return None
+        if col_name == 'grupo':
+            return get_grp_mapped_series(df)
         if col_name == 'Complexidade':
             return get_comp_mapped_series(df)
         if col_name in df.columns:
@@ -43,19 +50,22 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
         
         # Combinations logic
         if col_name == 'grupo_complexity':
+            grp_s = get_grp_mapped_series(df)
             comp_s = get_comp_mapped_series(df)
-            return df['grupo'].astype(str) + '_' + comp_s
+            return grp_s + '_' + comp_s
         if col_name == 'grupo_overlap':
+            grp_s = get_grp_mapped_series(df)
             over_s = df.get('Overlap', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
-            return df['grupo'].astype(str) + '_' + over_s
+            return grp_s + '_' + over_s
         if col_name == 'complexity_overlap':
             comp_s = get_comp_mapped_series(df)
             over_s = df.get('Overlap', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
             return comp_s + '_' + over_s
         if col_name == 'all':
+            grp_s = get_grp_mapped_series(df)
             comp_s = get_comp_mapped_series(df)
             over_s = df.get('Overlap', pd.Series('Unk', index=df.index)).astype(str).str.replace(r'\.0$', '', regex=True)
-            return df['grupo'].astype(str) + '_' + comp_s + '_' + over_s
+            return grp_s + '_' + comp_s + '_' + over_s
         return None
 
     def sort_level_key(item):
@@ -172,7 +182,7 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
                     x=freq_vector, y=mean_psd,
                     mode='lines',
                     line=dict(color=line_color, width=2.5),
-                    name='PSD média',
+                    name='Mean PSD',
                     showlegend=True if r_idx == 1 and c_idx == 1 else False,
                     legendgroup='mean_line'
                 ), row=r_idx, col=c_idx)
@@ -275,12 +285,12 @@ def create_psd_subplots(df_meta, df_x, channels_selected, stratify_by, overlay_b
         fig.update_yaxes(range=[global_min - padding, global_max + padding])
 
     if n_rows == 1:
-        fig.update_xaxes(title_text="Frequência (Hz)", showgrid=True, gridcolor=grid_color)
+        fig.update_xaxes(title_text="Frequency (Hz)", showgrid=True, gridcolor=grid_color)
     else:
         fig.update_xaxes(showgrid=True, gridcolor=grid_color)
         for c in range(1, n_cols + 1):
-             fig.update_xaxes(title_text="Frequência (Hz)", row=n_rows, col=c)
+             fig.update_xaxes(title_text="Frequency (Hz)", row=n_rows, col=c)
              
-    fig.update_yaxes(title_text=f"Potência {'(Log10)' if scale == 'log10' else ''}", showgrid=True, gridcolor=grid_color, col=1)
+    fig.update_yaxes(title_text=f"Power {'(Log10)' if scale == 'log10' else ''}", showgrid=True, gridcolor=grid_color, col=1)
 
     return fig

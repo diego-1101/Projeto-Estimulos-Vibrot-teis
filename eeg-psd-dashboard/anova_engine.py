@@ -15,15 +15,17 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
     if data.empty or data[group_col].nunique() < 2:
         return go.Figure().update_layout(title="Not enough data or groups for ANOVA"), {}
 
-    # Helper function to map complexities to English and format group labels
+    # Helper function to map complexities and groups to English
     comp_map = {
         '1': 'Easy', '4': 'Easy', '2': 'Medium', '6': 'Medium', '3': 'Hard', '8': 'Hard',
         'Fácil': 'Easy', 'Médio': 'Medium', 'Difícil': 'Hard'
     }
+    grp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-'}
+
     def format_anova_label(lbl):
         s = str(lbl).replace('.0', '').strip()
         parts = s.split('_')
-        return "_".join([comp_map.get(p, p) for p in parts])
+        return "_".join([grp_map.get(comp_map.get(p, p), comp_map.get(p, p)) for p in parts])
 
     # Standardize group_col values
     data['group_disp'] = data[group_col].map(format_anova_label)
@@ -49,14 +51,26 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
     # 4. Plotly Visualization
     fig = go.Figure()
     
-    # Sort groups with semantic awareness (Easy -> Medium -> Hard, etc.)
+    # Sort groups: Group first (V+/F+, then V-/F-), then Complexity (Easy -> Medium -> Hard)
     def sort_key(g):
         gs = str(g)
-        rank = 99
-        if 'Easy' in gs: rank = 1
-        elif 'Medium' in gs: rank = 2
-        elif 'Hard' in gs: rank = 3
-        return (rank, gs)
+        # 1. Group Rank (V+/F+ first = 1, V-/F- second = 2, others = 3)
+        group_rank = 3
+        if any(grp in gs for grp in ['V+', 'F+', 'CV', 'CF']):
+            group_rank = 1
+        elif any(grp in gs for grp in ['V-', 'F-', 'SV', 'SF']):
+            group_rank = 2
+
+        # 2. Complexity Rank (Easy -> Medium -> Hard)
+        comp_rank = 99
+        if 'Easy' in gs:
+            comp_rank = 1
+        elif 'Medium' in gs:
+            comp_rank = 2
+        elif 'Hard' in gs:
+            comp_rank = 3
+
+        return (group_rank, comp_rank, gs)
 
     group_names = sorted(data[actual_group_col].unique(), key=sort_key)
     
@@ -76,56 +90,69 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
         ci_lower.append(mean - ci)
         ci_upper.append(mean + ci)
 
-    # Determine marker colors based on group presence:
-    # CV/CF -> Light Blue (#5dade2), SV/SF -> Dark Blue (#0d47a1), fallback -> #0d6efd
+    # Standardized color map for complexity: Easy (#2ecc71), Medium (#f39c12), Hard (#e74c3c)
+    has_complexity = any(any(c in str(g) for c in ['Easy', 'Medium', 'Hard']) for g in group_names)
+
     def get_marker_color(cat_str):
-        parts = str(cat_str).split('_')
-        for p in parts:
-            if p in ['CV', 'CF']:
-                return '#5dade2'
-            elif p in ['SV', 'SF']:
-                return '#0d47a1'
-        return '#0d6efd'
+        for p in str(cat_str).split('_'):
+            if p in ['V+', 'F+', 'CV', 'CF']:
+                return '#5dade2'  # Light blue for V+ / F+
+            elif p in ['V-', 'F-', 'SV', 'SF']:
+                return '#0d47a1'  # Dark blue for V- / F-
+        return '#0d6efd'  # Standard blue if no group factor (e.g. Protocol C)
+
+    def get_marker_symbol(cat_str):
+        for p in str(cat_str).split('_'):
+            if p in ['V+', 'F+', 'CV', 'CF']:
+                return 'x'
+            elif p in ['V-', 'F-', 'SV', 'SF']:
+                return 'circle'
+        return 'circle'
 
     group_colors = [get_marker_color(g) for g in group_names]
+    group_symbols = [get_marker_symbol(g) for g in group_names]
     
-    has_cv_cf = any(c == '#5dade2' for c in group_colors)
-    has_sv_sf = any(c == '#0d47a1' for c in group_colors)
-    has_cf = any('CF' in str(g) for g in group_names)
-    has_sf = any('SF' in str(g) for g in group_names)
+    has_v_f_plus = any(s == 'x' for s in group_symbols)
+    has_v_f_minus = any(any(grp in str(g).split('_') for grp in ['V-', 'F-', 'SV', 'SF']) for g in group_names)
+    has_f_plus = any(any(grp in str(g).split('_') for grp in ['F+', 'CF']) for g in group_names)
+    has_f_minus = any(any(grp in str(g).split('_') for grp in ['F-', 'SF']) for g in group_names)
+    has_v_plus = any(any(grp in str(g).split('_') for grp in ['V+', 'CV']) for g in group_names)
+    has_v_minus = any(any(grp in str(g).split('_') for grp in ['V-', 'SV']) for g in group_names)
 
-    # 4.1 Dummy legend traces for groups
-    if has_cv_cf:
-        cv_label = "Grupo CF" if (has_cf and not any('CV' in str(g) for g in group_names)) else ("Grupo CV/CF" if has_cf else "Grupo CV")
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode='markers',
-            marker=dict(color='#5dade2', size=10, symbol='circle'),
-            name=cv_label,
-            showlegend=True
-        ))
-    if has_sv_sf:
-        sv_label = "Grupo SF" if (has_sf and not any('SV' in str(g) for g in group_names)) else ("Grupo SV/SF" if has_sf else "Grupo SV")
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode='markers',
-            marker=dict(color='#0d47a1', size=10, symbol='circle'),
-            name=sv_label,
-            showlegend=True
-        ))
-    if not has_cv_cf and not has_sv_sf:
+    # 4.1 Dummy legend traces matching Performance Evaluation
+    if has_v_f_plus or has_v_f_minus:
+        if has_v_f_plus:
+            plus_label = "Group F+ (X)" if (has_f_plus and not has_v_plus) else ("Group V+/F+ (X)" if has_f_plus else "Group V+ (X)")
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode='markers',
+                marker=dict(color='#5dade2', size=11, symbol='x', line=dict(width=2, color='#5dade2')),
+                name=plus_label,
+                showlegend=True
+            ))
+        if has_v_f_minus:
+            minus_label = "Group F- (Circle)" if (has_f_minus and not has_v_minus) else ("Group V-/F- (Circle)" if has_f_minus else "Group V- (Circle)")
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode='markers',
+                marker=dict(color='#0d47a1', size=10, symbol='circle'),
+                name=minus_label,
+                showlegend=True
+            ))
+    else:
         fig.add_trace(go.Scatter(
             x=[None], y=[None],
             mode='markers',
             marker=dict(color='#0d6efd', size=10, symbol='circle'),
-            name=f'Média ± IC{int((1-alpha)*100)}%',
+            name=f'Mean ± CI{int((1-alpha)*100)}%',
             showlegend=True
         ))
 
-    # 4.2 Add Means and CI bounds (without individual data points dispersion)
+    # 4.2 Add Means and CI bounds
     for i, g in enumerate(group_names):
         m = means[i]
         c = group_colors[i]
+        sym = group_symbols[i]
         ci_err = ci_upper[i] - m
         fig.add_trace(go.Scatter(
             x=[str(g)],
@@ -140,9 +167,14 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
                 width=6
             ),
             mode='markers',
-            marker=dict(color=c, size=10, symbol='circle'),
+            marker=dict(
+                color=c,
+                size=11 if sym == 'x' else 10,
+                symbol=sym,
+                line=dict(width=2, color=c) if sym == 'x' else dict(width=1, color='white')
+            ),
             showlegend=False,
-            hovertemplate=f"Grupo: {g}<br>Média: %{{y:.3f}}<br>IC: ±{ci_err:.3f}<extra></extra>"
+            hovertemplate=f"Condition: {g}<br>Mean: {m:.3f}<br>CI: ±{ci_err:.3f}<extra></extra>"
         ))
     
     # Add text annotations for Means
@@ -193,12 +225,12 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             y0 = 1.02 + step_paper * my_level
             
             # Determine bracket color:
-            # Red (#dc3545) for inter-group (CV/CF vs SV/SF)
-            # Green (#198754) for intra-group (CV vs CV, SV vs SV)
+            # Red (#dc3545) for inter-group (V+/F+ vs V-/F-)
+            # Green (#198754) for intra-group (V+ vs V+, V- vs V-)
             # Dark grey (#333333) for comparisons without group factor
             def get_group_part(cat_str):
                 for p in str(cat_str).split('_'):
-                    if p in ['CV', 'SV', 'CF', 'SF']:
+                    if p in ['V+', 'V-', 'F+', 'F-', 'CV', 'SV', 'CF', 'SF']:
                         return p
                 return None
                 
@@ -207,8 +239,8 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             
             bracket_color = "#333333"
             if gp1 and gp2:
-                is_cv1 = gp1 in ['CV', 'CF']
-                is_cv2 = gp2 in ['CV', 'CF']
+                is_cv1 = gp1 in ['V+', 'F+', 'CV', 'CF']
+                is_cv2 = gp2 in ['V+', 'F+', 'CV', 'CF']
                 if is_cv1 != is_cv2:
                     bracket_color = '#dc3545'  # Red for inter-group
                 else:
@@ -241,7 +273,7 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             x=[None], y=[None],
             mode='lines',
             line=dict(color='#dc3545', width=2),
-            name="Sig. Entre Grupos (CV/CF ↔ SV/SF)",
+            name="Between-Group Sig. (V+/F+ <-> V-/F-)",
             showlegend=True
         ))
     if '#198754' in used_bracket_colors:
@@ -249,7 +281,7 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             x=[None], y=[None],
             mode='lines',
             line=dict(color='#198754', width=2),
-            name="Sig. Intra-Grupo (CV ↔ CV / SV ↔ SV)",
+            name="Intra-Group Sig. (V+ <-> V+ / V- <-> V-)",
             showlegend=True
         ))
     if '#333333' in used_bracket_colors:
@@ -257,13 +289,13 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             x=[None], y=[None],
             mode='lines',
             line=dict(color='#333333', width=2),
-            name="Diferença Significativa",
+            name="Significant Difference",
             showlegend=True
         ))
 
     num_levels = len(levels)
-    top_margin = max(80, int(60 + num_levels * 18))
-    fig_height = 420 + top_margin + 40
+    top_margin = max(90, int(60 + num_levels * 18))
+    fig_height = 400 + top_margin + 50
 
     fig.update_xaxes(
         type='category',
@@ -272,13 +304,39 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
         tickangle=0 if len(group_names) <= 4 else 45
     )
 
+    VAR_NAME_EN = {
+        'Desempenho': 'Performance',
+        'Acuracia': 'Accuracy',
+        'Acurácia': 'Accuracy',
+        'Similaridade': 'Similarity',
+        'Especificidade': 'Specificity',
+        'Proporção espacial x': 'Spatial Proportion X',
+        'Proporção espacial y': 'Spatial Proportion Y',
+        'Proporcao espacial x': 'Spatial Proportion X',
+        'Proporcao espacial y': 'Spatial Proportion Y',
+        'grupo': 'Group',
+        'complexidade': 'Complexity',
+        'grupo_complexidade': 'Group & Complexity'
+    }
+    val_disp = VAR_NAME_EN.get(value_col, value_col)
+    grp_disp_name = VAR_NAME_EN.get(group_col, group_col)
+
     fig.update_layout(
-        title=f"ANOVA: {value_col} by {group_col} (F={f_stat:.2f}, p={p_val:.4f})",
-        yaxis_title=value_col,
+        title=dict(
+            text=f"ANOVA: {val_disp} by {grp_disp_name} (F={f_stat:.2f}, p={p_val:.4f})",
+            y=0.98,
+            x=0.5,
+            xanchor='center',
+            yanchor='top',
+            yref='container'
+        ),
+        xaxis_title=grp_disp_name,
+        yaxis_title=val_disp,
         plot_bgcolor='white',
         template='plotly_white',
-        margin=dict(t=top_margin, b=40, l=40, r=40),
+        margin=dict(t=top_margin, b=80, l=50, r=40),
         height=fig_height,
+        autosize=True,
         xaxis_showgrid=True,
         yaxis_showgrid=True,
         xaxis_gridcolor='lightgray',

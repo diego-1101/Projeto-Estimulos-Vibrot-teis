@@ -160,8 +160,8 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
         b_vmin, b_vmax = vmin, vmax
         if band_limits and band in band_limits: b_vmin, b_vmax = band_limits[band]
         
-        im, _ = mne.viz.plot_topomap(data, info, axes=axes[i], show=False, contours=0, cmap='RdBu_r', vlim=(b_vmin, b_vmax))
-        axes[i].set_title(band.capitalize(), fontsize=10)
+        band_name = 'Alpha' if band == 'alfa' else band.capitalize()
+        axes[i].set_title(band_name, fontsize=10)
         fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
 
     buf = io.BytesIO()
@@ -234,7 +234,8 @@ def generate_topoplot_comparison_base64(p1, p2, scale_db, label1="Panel 1", labe
         v_zeros = np.zeros(len(diff))
         
         im, _ = mne.viz.plot_topomap(v_zeros, info, axes=axes[i], show=False, contours=0, cmap=white_cmap, vlim=(0, 1), mask=np.array(mask), mask_params=dict(marker='x', markeredgecolor='black', markersize=6))
-        axes[i].set_title(band.capitalize(), fontsize=10)
+        band_name = 'Alpha' if band == 'alfa' else band.capitalize()
+        axes[i].set_title(band_name, fontsize=10)
         # fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
         
         band_sig = []
@@ -310,7 +311,8 @@ def generate_anova_map_base64(panels_data, scale_db):
         v_zeros = np.zeros(len(pvals))
         
         im, _ = mne.viz.plot_topomap(v_zeros, info, axes=axes[i], show=False, contours=0, cmap=white_cmap, vlim=(0, 1), mask=np.array(mask), mask_params=dict(marker='x', markeredgecolor='black', markersize=6))
-        axes[i].set_title(band.capitalize(), fontsize=10)
+        band_name = 'Alpha' if band == 'alfa' else band.capitalize()
+        axes[i].set_title(band_name, fontsize=10)
         # fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)
 
     buf = io.BytesIO()
@@ -334,22 +336,32 @@ def get_channel_reference_base64():
 
 def format_panel_label(p, multiline=False, short=False):
     """
-    Formats a descriptive, standardized label for a topoplot panel.
+    Formats a descriptive, standardized label for a topoplot panel in English.
     p is a dict with keys: 'protocol', 'fase', 'group', 'is_normalized', 'is_baseline'
     """
     prot = p.get('protocol', 'A')
-    norm = " Normalizado" if p.get('is_normalized') else ""
+    norm = " Normalized" if p.get('is_normalized') else ""
     norm_short = " Norm" if p.get('is_normalized') else ""
     fase = p.get('fase', '')
-    fase_str = fase.capitalize() if fase else ""
+    
+    fase_map = {
+        'estimulacao': 'Stimulation',
+        'execucao': 'Execution',
+        'Ambos': 'Both',
+        'baseline': 'Baseline'
+    }
+    fase_str = fase_map.get(fase, fase.capitalize() if fase else "")
     group = p.get('group', '')
     
+    grp_map = {'CV': 'V+', 'SV': 'V-', 'CF': 'F+', 'SF': 'F-', 'Ambos': 'Both'}
+    group_disp = grp_map.get(group, group)
+    
     if short:
-        grp_str = f"({group})" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
+        grp_str = f"({group_disp})" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
         return f"{prot}{grp_str}"
         
-    group_str = f" - Grupo {group}" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
-    group_short = f" - {group}" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
+    group_str = f" - Group {group_disp}" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
+    group_short = f" - {group_disp}" if prot in ['A', 'B'] and group and group != 'Ambos' else ""
     
     if multiline:
         line1 = f"Prot. {prot}{norm_short}"
@@ -357,7 +369,7 @@ def format_panel_label(p, multiline=False, short=False):
         return f"{line1}\n{line2}" if line2 else line1
     else:
         info = f" ({fase_str}{group_str})" if (fase_str or group_str) else ""
-        return f"Protocolo {prot}{norm}{info}"
+        return f"Protocol {prot}{norm}{info}"
 
 
 def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, band_limits=None):
@@ -436,7 +448,8 @@ def generate_inverted_topoplot_grid_base64(panels_data, vmin=None, vmax=None, ba
                 
             # Label rows on the left of the first column
             if col_idx == 0:
-                ax.text(-0.25, 0.5, band.capitalize(), transform=ax.transAxes, 
+                band_name = 'Alpha' if band == 'alfa' else band.capitalize()
+                ax.text(-0.25, 0.5, band_name, transform=ax.transAxes, 
                         fontsize=12, weight='bold', va='center', ha='right')
                         
             fig.colorbar(im, ax=ax, orientation='horizontal', fraction=0.046, pad=0.15)
