@@ -307,14 +307,71 @@ Ao iniciar qualquer interação neste repositório:
 
 ---
 
+## 📅 Sessão 12 (13 de Outubro de 2026) — Correção de Deploy no Render (ImportError), Hotfix no Topoplot Engine (NameError 'im') e Auditoria de Integridade dos Dados
+
+* **Data/Hora:** 13/10/2026
+* **Status:** Concluído com Sucesso e Validado ✅
+
+### 🎯 Contexto e Demandas do Usuário:
+1. **Falha de Deploy no Render (`ImportError: cannot import name 'VAR_NAME_EN' from 'performance_engine'`):**
+   * Ao subir a aplicação no Render, o Gunicorn falhava na inicialização do `app.py` (linha 31) ao tentar importar `VAR_NAME_EN`.
+2. **Falha de Renderização no Topoplot (`NameError: name 'im' is not defined`):**
+   * O callback do Topoplot quebrava no Dash ao gerar visualizações (`app.py`, linha 2420 $\to$ `topoplot_engine.py`, linha 165).
+3. **Garantia de Integridade e Funcionamento Global:**
+   * O usuário solicitou a garantia de funcionamento correto de todos os módulos após as atualizações de internacionalização para o inglês e a confirmação categórica de que os dados de alimentação dos gráficos não sofreram alterações.
+
+---
+
+### 🔬 Diagnósticos e Decisões Técnicas:
+
+1. **Deploy no Render e o `ImportError: VAR_NAME_EN`:**
+   * **Causa do Problema:** No commit `7fa1885`, o arquivo `app.py` foi comitado com `from performance_engine import (..., VAR_NAME_EN)`. No entanto, o arquivo local `eeg-psd-dashboard/performance_engine.py` (onde o dicionário havia sido implementado) ficou como modificação não rastreada/não commitada (`unstaged`). Quando o Render clonou o branch `main` do GitHub, obteve o `app.py` novo com o `performance_engine.py` antigo, gerando o erro de importação.
+   * **Resolução:** O arquivo [`eeg-psd-dashboard/performance_engine.py`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/eeg-psd-dashboard/performance_engine.py) foi devidamente versionado e enviado ao repositório no commit `cd5c92f`.
+
+2. **Hotfix no Topoplot Engine (`NameError: name 'im' is not defined`):**
+   * **Causa do Problema:** Durante a padronização de nomenclatura de bandas (`Alpha` em vez de `alfa`), a chamada de interpolação do MNE `im, _ = mne.viz.plot_topomap(...)` na função `generate_topoplot_grid_base64` foi acidentalmente sobrescrita pela linha de definição de título. Consequentemente, a variável `im` não existia ao ser passada para `fig.colorbar(im, ax=axes[i], ...)`.
+   * **Resolução:** A chamada `mne.viz.plot_topomap` foi restaurada no [`topoplot_engine.py`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/eeg-psd-dashboard/topoplot_engine.py).
+
+3. **Blindagem de Robustez nos Motores:**
+   * **Topoplot (Protocolo C):** Os arquivos de topoplot do Protocolo C registram `grupo = 'all'` em minúsculas. Ajustado o matching para case-insensitive e adicionada guarda contra DataFrames vazios (`if df.empty or 'banda' not in df.columns: return None, "Data not found or empty."`), eliminando riscos de `KeyError: 'banda'`.
+   * **Performance Post-Hoc:** Inicialização antecipada de `sig_pairs = []` em `plot_interactive_dot_sig`, evitando `UnboundLocalError` caso a tabela de ANOVA não possua contrastes significantes.
+
+4. **Auditoria Estrita de Integridade dos Dados:**
+   * Confirmado que todos os arquivos CSV em [`eeg-psd-dashboard/data/`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/eeg-psd-dashboard/data) permanecem **100% intocados e idênticos** desde o commit `cbd8aeb` (25/09/2026).
+   * Os últimos commits alteraram exclusivamente a camada visual (rótulos em inglês, layout, margens) e hotfixes de código, mantendo intocada toda a base matemática e os dados brutos e processados.
+
+---
+
+### 🧪 Bateria de Testes Automatizados Executada:
+
+| Módulo / Teste | Cenário | Resultado |
+| :--- | :--- | :---: |
+| `topoplot_engine` | 1 Painel (Single Plot Mode) | ✅ Aprovado |
+| `topoplot_engine` | 2 Painéis (Comparison View Invertida + Welch $t$-test) | ✅ Aprovado |
+| `topoplot_engine` | 3 Painéis (Prot A, B, C com ANOVA One-Way e correção FDR) | ✅ Aprovado |
+| `performance_engine` | ANOVA Tipo III Fatorial, Tukey HSD Fatorial, Gráficos Híbridos | ✅ Aprovado |
+| `performance_engine` | Análise de Proporções Espaciais X e Y (Welch $t$-test) | ✅ Aprovado |
+| `analysis_engine` | Redução Dimensional (PCA, LDA, CDA/manova1, PLS) | ✅ Aprovado |
+| `psd_visualizer` | Visualizador espectral de PSD com faixas clássicas | ✅ Aprovado |
+
+---
+
+### 🛠️ Arquivos Modificados e Commits:
+* [`eeg-psd-dashboard/performance_engine.py`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/eeg-psd-dashboard/performance_engine.py): Commit `cd5c92f` (inclusão de `VAR_NAME_EN` e `GRP_MAP_EN`) e commit `972442f` (inicialização de `sig_pairs`).
+* [`eeg-psd-dashboard/topoplot_engine.py`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/eeg-psd-dashboard/topoplot_engine.py): Commit `972442f` (restauração de `plot_topomap`, filtro robusto do Protocolo C e mensagens em inglês).
+* [`Agent Conversations/conversations.md`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/Agent%20Conversations/conversations.md): Registro detalhado da Sessão 12.
+
+---
+
 ## 🚀 Estado Atual e Recomendações para a Próxima Sessão
-1. **Dashboard 100% Funcional e Estável:**
-   * ANOVA das CDAs formatada no padrão azul com colchetes coloridos e sem colisões.
-   * ANOVA da Performance operando sem erros com suporte a interações simples, duplas e triplas.
-2. **Porta `8050` Desocupada:**
-   * Pronto para inicialização limpa quando o usuário desejar rodar novamente (`python eeg-psd-dashboard/app.py`).
-3. **Documentação e Memória do Agente Sincronizada:**
-   * Tanto [`Agents.md`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/Agent%20Conversations/Agents.md) quanto [`conversations.md`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/Agent%20Conversations/conversations.md) estão integralmente atualizados com todos os dados técnicos, amostrais e operacionais.
+1. **Aplicação Pronta e Operacional:**
+   * Build e execução no Render totalmente corrigidos e sincronizados com `origin/main`.
+   * Execução local no Dash operando sem erros em todas as abas.
+2. **Dados Íntegros:**
+   * Garantia formal de que nenhuma matriz ou CSV da pasta `data/` foi alterado.
+3. **Memória do Agente Sincronizada:**
+   * Diretrizes do [`Agents.md`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/Agent%20Conversations/Agents.md) e histórico em [`conversations.md`](file:///c:/Users/diego/OneDrive/Documents/GitHub/Projeto-Estimulos-Vibrot-teis/Agent%20Conversations/conversations.md) 100% atualizados.
+
 
 
 
