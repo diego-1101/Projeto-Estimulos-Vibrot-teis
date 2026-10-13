@@ -97,9 +97,15 @@ def combine_topoplot_data(dfs, protocols, groups, phases, target_col, std_col=No
             elif not d1.empty: phase_results.append((d1.reset_index(), n1))
             elif not d2.empty: phase_results.append((d2.reset_index(), n2))
         else:
-            if 'grupo' in df.columns and group and group != 'Ambos': df = df[df['grupo'] == group].copy()
-            elif 'grupo' in df.columns and prot == 'C' and not group: df = df[df['grupo'].isin(['all', 'ALL'])].copy()
-            n = TRIAL_COUNTS['C'].get(phase, 144) if prot == 'C' else (TRIAL_COUNTS[prot]['estimulacao'] if group == 'Ambos' else TRIAL_COUNTS[prot].get(group, 270))
+            if prot == 'C':
+                if 'grupo' in df.columns:
+                    df = df[df['grupo'].astype(str).str.lower() == 'all'].copy()
+                n = TRIAL_COUNTS['C'].get(phase, 144)
+            else:
+                if 'grupo' in df.columns and group and group != 'Ambos':
+                    mask = (df['grupo'] == group) | (df['grupo'].astype(str).str.upper() == str(group).upper())
+                    df = df[mask].copy()
+                n = TRIAL_COUNTS[prot]['estimulacao'] if group == 'Ambos' else TRIAL_COUNTS[prot].get(group, 270)
             if not df.empty: phase_results.append((df, n))
 
     if not phase_results: return pd.DataFrame()
@@ -142,11 +148,12 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
     for f in fases_to_load:
         path = get_topoplot_path(protocol, f, is_normalized, is_baseline)
         if path and os.path.exists(path): dfs_to_combine.append(pd.read_csv(path))
-    if not dfs_to_combine: return None, "Dados não localizados."
+    if not dfs_to_combine: return None, "Data not found."
     
     t_col = 'psd_db_mean' if scale_db else 'psd_mean'
     s_col = 'psd_db_std' if scale_db else 'psd_std'
     df = combine_topoplot_data(dfs_to_combine, [protocol]*len(dfs_to_combine), [group]*len(dfs_to_combine), fases_to_load, t_col, s_col)
+    if df.empty or 'banda' not in df.columns: return None, "Data not found or empty."
     
     fig, axes = plt.subplots(1, 6, figsize=(15, 4), facecolor='none')
     montage = mne.channels.make_standard_montage('standard_1020')
@@ -160,6 +167,7 @@ def generate_topoplot_grid_base64(protocol, fase, group, scale_db, is_normalized
         b_vmin, b_vmax = vmin, vmax
         if band_limits and band in band_limits: b_vmin, b_vmax = band_limits[band]
         
+        im, _ = mne.viz.plot_topomap(data, info, axes=axes[i], show=False, contours=0, cmap='RdBu_r', vlim=(b_vmin, b_vmax))
         band_name = 'Alpha' if band == 'alfa' else band.capitalize()
         axes[i].set_title(band_name, fontsize=10)
         fig.colorbar(im, ax=axes[i], orientation='horizontal', fraction=0.046, pad=0.15)

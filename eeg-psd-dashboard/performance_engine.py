@@ -401,6 +401,7 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
 
     sig_results = []
     levels = []
+    sig_pairs = []
     if show_sig_bars and len(order) >= 2:
         try:
             if anova_table is not None:
@@ -413,7 +414,6 @@ def plot_interactive_dot_sig(df, x_col, y_col, order=None, alpha=0.05, title=Non
                 res_df = pd.DataFrame(data=res._results_table.data[1:], columns=res._results_table.data[0])
             
             if res_df is not None and not res_df.empty:
-                sig_pairs = []
                 for _, row in res_df.iterrows():
                     # check for 'reject' or 'p-adj' < alpha
                     is_rejected = row.get('reject', False) or row.get('p-adj', 1.0) < alpha
