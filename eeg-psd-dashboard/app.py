@@ -14,7 +14,7 @@ import numpy as np
 # Import our modules
 from data_loader import load_data, build_X, build_Y
 from analysis_engine import compute_embeddings
-from anova_engine import compute_anova_and_plot
+from anova_engine import compute_anova_and_plot, build_posthoc_table_component
 from psd_visualizer import create_psd_subplots
 from topoplot_engine import (
     generate_topoplot_grid_base64, 
@@ -167,7 +167,7 @@ def run_projected_anova(coords_df, color_labels, target_label="Projected Axis 1"
         'val': coords_df.iloc[:, 0].values,
         'label': color_labels
     })
-    from anova_engine import compute_anova_and_plot
+    from anova_engine import compute_anova_and_plot, build_posthoc_table_component
     fig, stats = compute_anova_and_plot(temp_df, 'val', 'label')
     # Update axis label in title for clarity
     fig.update_layout(title=f"ANOVA: {target_label}")
@@ -419,7 +419,7 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                 dim_name = axis_names[d]
                 dim_candidates.append((dim_name, coords_df[dim_name]))
 
-        from anova_engine import compute_anova_and_plot
+        from anova_engine import compute_anova_and_plot, build_posthoc_table_component
         
         def run_dim_anova(dim_idx):
             if dim_idx >= len(dim_candidates):
@@ -429,7 +429,7 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                     template='plotly_dark' if theme == 'dark' else 'plotly_white',
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
                 )
-                return empty_fig, f"Dimension CD{dim_idx+1} not calculated for this model/class count."
+                return empty_fig, f"Dimension CD{dim_idx+1} not calculated for this model/class count.", html.Div()
                 
             d_name, d_series = dim_candidates[dim_idx]
             s_df = pd.DataFrame({'val': d_series, 'cluster_label': cluster_labels}).dropna()
@@ -442,29 +442,29 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                             y=0.98,
                             x=0.5,
                             xanchor='center',
-                            yanchor='top',
-                            yref='container'
+                            yanchor='top'
                         ),
-                        autosize=True
+                        yaxis_title=d_name
                     )
                     if theme == 'dark':
                         fig_a.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                     p_val = stats_a.get('p_value', 1)
                     sig_badge = " (Significant: p < 0.05)" if p_val < 0.05 else " (Not significant: ns)"
                     res_txt = f"F: {stats_a.get('F', 0):.2f} | p-value: {p_val:.4e}{sig_badge}"
-                    return fig_a, res_txt
+                    posthoc_tbl = build_posthoc_table_component(stats_a.get('tukey_summary', []), theme=theme, alpha=0.05)
+                    return fig_a, res_txt, posthoc_tbl
                 else:
                     empty_fig = go.Figure()
                     empty_fig.update_layout(title=f"ANOVA: {d_name} (Insufficient)")
-                    return empty_fig, "ANOVA: Insufficient groups or data."
+                    return empty_fig, "ANOVA: Insufficient groups or data.", html.Div()
             except Exception as ae:
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title=f"ANOVA Error: {d_name}")
-                return empty_fig, f"ANOVA Error: {str(ae)}"
+                return empty_fig, f"ANOVA Error: {str(ae)}", html.Div()
 
-        anova_fig1, anova_res1 = run_dim_anova(0)
-        anova_fig2, anova_res2 = run_dim_anova(1)
-        anova_fig3, anova_res3 = run_dim_anova(2)
+        anova_fig1, anova_res1, anova_posthoc1 = run_dim_anova(0)
+        anova_fig2, anova_res2, anova_posthoc2 = run_dim_anova(1)
+        anova_fig3, anova_res3, anova_posthoc3 = run_dim_anova(2)
 
         # --- Centroid Distances ---
         centroid_res = []
@@ -619,13 +619,13 @@ def run_single_analysis(protocol, groups_selected, method, x_mode, y_cols, domai
                  eig_txt_y = ", ".join([f"CD{i+1}: {v:.4f}" for i, v in enumerate(cdy['eigenval'][:3])])
                  stats_content.append(html.P([html.Strong("CDA Y Eigenvalues (first 3): "), eig_txt_y]))
 
-        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, html.Div(centroid_res, className="d-flex flex-wrap")
+        return fig, html.Div(stats_content or "No stats evaluated"), anova_fig1, anova_res1, anova_posthoc1, anova_fig2, anova_res2, anova_posthoc2, anova_fig3, anova_res3, anova_posthoc3, html.Div(centroid_res, className="d-flex flex-wrap")
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         error_fig = go.Figure().update_layout(title=f"Error: {str(e)}")
-        return error_fig, html.Div(f"Error: {str(e)}"), go.Figure(), "", go.Figure(), "", go.Figure(), "", ""
+        return error_fig, html.Div(f"Error: {str(e)}"), go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), ""
 
 
 # A primeira definicao de get_performance_layout era duplicada e foi removida.
@@ -712,17 +712,20 @@ def get_analysis_layout():
             html.Div([
                 html.H4("ANOVA Test — CD1"),
                 html.Div(id='anova-stats-1', className="mb-2"),
-                dcc.Graph(id='anova-plot-1', responsive=True, style={'minHeight': '500px', 'width': '100%'}, config={'responsive': True})
+                html.Div(id='anova-posthoc-1', className="mb-2"),
+                dcc.Graph(id='anova-plot-1', style={'minHeight': '500px', 'marginTop': '10px'})
             ], className="card mb-3"),
             html.Div([
                 html.H4("ANOVA Test — CD2"),
                 html.Div(id='anova-stats-1-cd2', className="mb-2"),
-                dcc.Graph(id='anova-plot-1-cd2', responsive=True, style={'minHeight': '500px', 'width': '100%'}, config={'responsive': True})
+                html.Div(id='anova-posthoc-1-cd2', className="mb-2"),
+                dcc.Graph(id='anova-plot-1-cd2', style={'minHeight': '500px', 'marginTop': '10px'})
             ], className="card mb-3"),
             html.Div([
                 html.H4("ANOVA Test — CD3"),
                 html.Div(id='anova-stats-1-cd3', className="mb-2"),
-                dcc.Graph(id='anova-plot-1-cd3', responsive=True, style={'minHeight': '500px', 'width': '100%'}, config={'responsive': True})
+                html.Div(id='anova-posthoc-1-cd3', className="mb-2"),
+                dcc.Graph(id='anova-plot-1-cd3', style={'minHeight': '500px', 'marginTop': '10px'})
             ], className="card mb-3"),
             html.Div([
                 html.H4("Centroid Distances"),
@@ -743,17 +746,20 @@ def get_analysis_layout():
                     html.Div([
                         html.H5("ANOVA 1 — CD1"),
                         html.Div(id='anova-stats-left', className="mb-2"),
-                        dcc.Graph(id='anova-plot-left', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
+                        html.Div(id='anova-posthoc-left', className="mb-2"),
+                        dcc.Graph(id='anova-plot-left', style={'minHeight': '400px', 'marginTop': '10px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 1 — CD2"),
                         html.Div(id='anova-stats-left-cd2', className="mb-2"),
-                        dcc.Graph(id='anova-plot-left-cd2', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
+                        html.Div(id='anova-posthoc-left-cd2', className="mb-2"),
+                        dcc.Graph(id='anova-plot-left-cd2', style={'minHeight': '400px', 'marginTop': '10px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 1 — CD3"),
                         html.Div(id='anova-stats-left-cd3', className="mb-2"),
-                        dcc.Graph(id='anova-plot-left-cd3', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
+                        html.Div(id='anova-posthoc-left-cd3', className="mb-2"),
+                        dcc.Graph(id='anova-plot-left-cd3', style={'minHeight': '400px', 'marginTop': '10px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("Centroid Distances 1"), 
@@ -771,17 +777,20 @@ def get_analysis_layout():
                     html.Div([
                         html.H5("ANOVA 2 — CD1"),
                         html.Div(id='anova-stats-right', className="mb-2"),
-                        dcc.Graph(id='anova-plot-right', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
+                        html.Div(id='anova-posthoc-right', className="mb-2"),
+                        dcc.Graph(id='anova-plot-right', style={'minHeight': '400px', 'marginTop': '10px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 2 — CD2"),
                         html.Div(id='anova-stats-right-cd2', className="mb-2"),
-                        dcc.Graph(id='anova-plot-right-cd2', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
+                        html.Div(id='anova-posthoc-right-cd2', className="mb-2"),
+                        dcc.Graph(id='anova-plot-right-cd2', style={'minHeight': '400px', 'marginTop': '10px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("ANOVA 2 — CD3"),
                         html.Div(id='anova-stats-right-cd3', className="mb-2"),
-                        dcc.Graph(id='anova-plot-right-cd3', responsive=True, style={'minHeight': '400px', 'width': '100%'}, config={'responsive': True})
+                        html.Div(id='anova-posthoc-right-cd3', className="mb-2"),
+                        dcc.Graph(id='anova-plot-right-cd3', style={'minHeight': '400px', 'marginTop': '10px'})
                     ], className="card mb-3"),
                     html.Div([
                         html.H5("Centroid Distances 2"), 
@@ -1804,9 +1813,9 @@ def options_axis_selectors(protocol, domains):
 
 @app.callback(
     [Output('plot-1', 'figure'), Output('stats-1', 'children'),
-     Output('anova-plot-1', 'figure'), Output('anova-stats-1', 'children'),
-     Output('anova-plot-1-cd2', 'figure'), Output('anova-stats-1-cd2', 'children'),
-     Output('anova-plot-1-cd3', 'figure'), Output('anova-stats-1-cd3', 'children'),
+     Output('anova-plot-1', 'figure'), Output('anova-stats-1', 'children'), Output('anova-posthoc-1', 'children'),
+     Output('anova-plot-1-cd2', 'figure'), Output('anova-stats-1-cd2', 'children'), Output('anova-posthoc-1-cd2', 'children'),
+     Output('anova-plot-1-cd3', 'figure'), Output('anova-stats-1-cd3', 'children'), Output('anova-posthoc-1-cd3', 'children'),
      Output('centroid-distance-1', 'children'),
      Output('info-panel', 'children')],
     Input('run-btn', 'n_clicks'),
@@ -1832,10 +1841,10 @@ def update_single_analysis(n, prot, groups, meth, x_mode, fase, selected_channel
     if n == 0 or 'yes' in comp:
         fig = go.Figure()
         fig.update_layout(title="Click Run Analysis")
-        return fig, "No data", go.Figure(), "", go.Figure(), "", go.Figure(), "", "", html.P("Ready")
+        return fig, "No data", go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), "", html.P("Ready")
     
     axes = [ax1, ax2, ax3]
-    fig, stats, anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, centroid_res = run_single_analysis(
+    fig, stats, anova_fig1, anova_res1, anova_posthoc1, anova_fig2, anova_res2, anova_posthoc2, anova_fig3, anova_res3, anova_posthoc3, centroid_res = run_single_analysis(
         prot, groups, meth, x_mode, y_cols, dom, axes, dims, theme, color, supervision_by, fase, selected_channels
     )
     
@@ -1844,18 +1853,18 @@ def update_single_analysis(n, prot, groups, meth, x_mode, fase, selected_channel
         html.P([html.Strong("Groups: "), ", ".join(groups) if groups else "All"]),
         html.H6(f"Method: {meth}", style={'marginTop': '10px'}),
     ])
-    return fig, stats, anova_fig1, anova_res1, anova_fig2, anova_res2, anova_fig3, anova_res3, centroid_res, info
+    return fig, stats, anova_fig1, anova_res1, anova_posthoc1, anova_fig2, anova_res2, anova_posthoc2, anova_fig3, anova_res3, anova_posthoc3, centroid_res, info
 
 @app.callback(
     [Output('plot-left', 'figure'), Output('stats-left', 'children'),
-     Output('anova-plot-left', 'figure'), Output('anova-stats-left', 'children'),
-     Output('anova-plot-left-cd2', 'figure'), Output('anova-stats-left-cd2', 'children'),
-     Output('anova-plot-left-cd3', 'figure'), Output('anova-stats-left-cd3', 'children'),
+     Output('anova-plot-left', 'figure'), Output('anova-stats-left', 'children'), Output('anova-posthoc-left', 'children'),
+     Output('anova-plot-left-cd2', 'figure'), Output('anova-stats-left-cd2', 'children'), Output('anova-posthoc-left-cd2', 'children'),
+     Output('anova-plot-left-cd3', 'figure'), Output('anova-stats-left-cd3', 'children'), Output('anova-posthoc-left-cd3', 'children'),
      Output('centroid-distance-left', 'children'),
      Output('plot-right', 'figure'), Output('stats-right', 'children'),
-     Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children'),
-     Output('anova-plot-right-cd2', 'figure'), Output('anova-stats-right-cd2', 'children'),
-     Output('anova-plot-right-cd3', 'figure'), Output('anova-stats-right-cd3', 'children'),
+     Output('anova-plot-right', 'figure'), Output('anova-stats-right', 'children'), Output('anova-posthoc-right', 'children'),
+     Output('anova-plot-right-cd2', 'figure'), Output('anova-stats-right-cd2', 'children'), Output('anova-posthoc-right-cd2', 'children'),
+     Output('anova-plot-right-cd3', 'figure'), Output('anova-stats-right-cd3', 'children'), Output('anova-posthoc-right-cd3', 'children'),
      Output('centroid-distance-right', 'children')],
     Input('run-btn', 'n_clicks'),
     [State('protocol-dropdown', 'value'),
@@ -1881,21 +1890,24 @@ def update_comparison(n, prot, groups, methods, x_modes, fases, selected_channel
     fig.update_layout(title="Enable comparison mode")
     
     if n == 0 or 'yes' not in comp or len(methods) < 2:
-        return fig, "Waiting...", go.Figure(), "", go.Figure(), "", go.Figure(), "", "", fig, "Waiting...", go.Figure(), "", go.Figure(), "", go.Figure(), "", ""
+        return fig, "Waiting...", go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), "", fig, "Waiting...", go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), go.Figure(), "", html.Div(), ""
         
     # Analysis 1
     axes1 = [ax1s[0], ax2s[0], ax3s[0]]
-    fig1, stats1, anova_fig1_1, anova_res1_1, anova_fig1_2, anova_res1_2, anova_fig1_3, anova_res1_3, centroid_res1 = run_single_analysis(
+    fig1, stats1, anova_fig1_1, anova_res1_1, anova_posthoc1_1, anova_fig1_2, anova_res1_2, anova_posthoc1_2, anova_fig1_3, anova_res1_3, anova_posthoc1_3, centroid_res1 = run_single_analysis(
         prot, groups, methods[0], x_modes[0], y_cols_lists[0], doms[0], axes1, dims, theme, colors[0], supervisions[0], fases[0], selected_channels_lists[0]
     )
     
     # Analysis 2
     axes2 = [ax1s[1], ax2s[1], ax3s[1]]
-    fig2, stats2, anova_fig2_1, anova_res2_1, anova_fig2_2, anova_res2_2, anova_fig2_3, anova_res2_3, centroid_res2 = run_single_analysis(
+    fig2, stats2, anova_fig2_1, anova_res2_1, anova_posthoc2_1, anova_fig2_2, anova_res2_2, anova_posthoc2_2, anova_fig2_3, anova_res2_3, anova_posthoc2_3, centroid_res2 = run_single_analysis(
         prot, groups, methods[1], x_modes[1], y_cols_lists[1], doms[1], axes2, dims, theme, colors[1], supervisions[1], fases[1], selected_channels_lists[1]
     )
     
-    return fig1, stats1, anova_fig1_1, anova_res1_1, anova_fig1_2, anova_res1_2, anova_fig1_3, anova_res1_3, centroid_res1, fig2, stats2, anova_fig2_1, anova_res2_1, anova_fig2_2, anova_res2_2, anova_fig2_3, anova_res2_3, centroid_res2
+    return (
+        fig1, stats1, anova_fig1_1, anova_res1_1, anova_posthoc1_1, anova_fig1_2, anova_res1_2, anova_posthoc1_2, anova_fig1_3, anova_res1_3, anova_posthoc1_3, centroid_res1,
+        fig2, stats2, anova_fig2_1, anova_res2_1, anova_posthoc2_1, anova_fig2_2, anova_res2_2, anova_posthoc2_2, anova_fig2_3, anova_res2_3, anova_posthoc2_3, centroid_res2
+    )
 
 # Expose server for Vercel
 server = app.server

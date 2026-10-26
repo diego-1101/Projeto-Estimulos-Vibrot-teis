@@ -3,6 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy import stats
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from dash import html, dash_table
 
 def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
     """
@@ -38,15 +39,19 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
     stats_dict = {
         'F': f_stat,
         'p_value': p_val,
-        'significant': p_val < alpha
+        'significant': p_val < alpha,
+        'alpha': alpha
     }
 
     # 3. Post-Hoc Tukey HSD
-    tukey = pairwise_tukeyhsd(endog=data[value_col], groups=data[actual_group_col], alpha=alpha)
-    tukey_df = pd.DataFrame(data=tukey._results_table.data[1:], columns=tukey._results_table.data[0])
-    significant_pairs = tukey_df[tukey_df['reject'] == True]
-    
-    stats_dict['tukey_summary'] = tukey_df.to_dict('records')
+    try:
+        tukey = pairwise_tukeyhsd(endog=data[value_col], groups=data[actual_group_col], alpha=alpha)
+        tukey_df = pd.DataFrame(data=tukey._results_table.data[1:], columns=tukey._results_table.data[0])
+        significant_pairs = tukey_df[tukey_df['reject'] == True]
+        stats_dict['tukey_summary'] = tukey_df.to_dict('records')
+    except Exception as te:
+        significant_pairs = pd.DataFrame()
+        stats_dict['tukey_summary'] = []
 
     # 4. Plotly Visualization
     fig = go.Figure()
@@ -144,11 +149,25 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             x=[None], y=[None],
             mode='markers',
             marker=dict(color='#0d6efd', size=10, symbol='circle'),
-            name=f'Mean ± CI{int((1-alpha)*100)}%',
+            name=f'Mean +/- CI{int((1-alpha)*100)}%',
             showlegend=True
         ))
 
-    # 4.2 Add Means and CI bounds
+    # 4.2 Base Box skeleton traces to anchor category axis and natural Y-scale, matching performance_engine
+    for g in group_names:
+        g_data = data[data[actual_group_col] == g][value_col]
+        fig.add_trace(go.Box(
+            x=[str(g)] * len(g_data),
+            y=g_data.values,
+            name=str(g),
+            boxpoints=False,
+            fillcolor='rgba(255,255,255,0)',
+            line=dict(color='rgba(0,0,0,0)'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+
+    # 4.3 Add Means and CI bounds (clean hover without cluttered text annotations)
     for i, g in enumerate(group_names):
         m = means[i]
         c = group_colors[i]
@@ -174,22 +193,10 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
                 line=dict(width=2, color=c) if sym == 'x' else dict(width=1, color='white')
             ),
             showlegend=False,
-            hovertemplate=f"Condition: {g}<br>Mean: {m:.3f}<br>CI: ±{ci_err:.3f}<extra></extra>"
+            hovertemplate=f"Condition: {g}<br>Mean: {m:.3f}<br>CI: +/-{ci_err:.3f}<extra></extra>"
         ))
-    
-    # Add text annotations for Means
-    for i, m in enumerate(means):
-        ci_val = ci_upper[i] - m
-        fig.add_annotation(
-            x=str(group_names[i]),
-            y=m + ci_val,
-            text=f"M: {m:.3f}<br>CI: ±{ci_val:.3f}",
-            showarrow=False,
-            font=dict(size=9, color='black'),
-            yshift=12
-        )
 
-    # 4.3 Add Significance Brackets (using paper coordinates with packed levels)
+    # 4.4 Add Significance Brackets (using paper coordinates with packed levels)
     levels = []
     used_bracket_colors = set()
     
@@ -293,9 +300,10 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             showlegend=True
         ))
 
-    num_levels = len(levels)
-    top_margin = max(90, int(60 + num_levels * 18))
-    fig_height = 400 + top_margin + 50
+    num_levels = len(levels) if levels else 0
+    top_margin = max(80, int(60 + num_levels * 16))
+    bottom_margin = 60 if len(group_names) > 4 else 40
+    fig_height = 400 + top_margin + bottom_margin
 
     fig.update_xaxes(
         type='category',
@@ -327,16 +335,14 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
             y=0.98,
             x=0.5,
             xanchor='center',
-            yanchor='top',
-            yref='container'
+            yanchor='top'
         ),
         xaxis_title=grp_disp_name,
         yaxis_title=val_disp,
         plot_bgcolor='white',
         template='plotly_white',
-        margin=dict(t=top_margin, b=80, l=50, r=40),
+        margin=dict(t=top_margin, b=bottom_margin, l=50, r=40),
         height=fig_height,
-        autosize=True,
         xaxis_showgrid=True,
         yaxis_showgrid=True,
         xaxis_gridcolor='lightgray',
@@ -348,3 +354,140 @@ def compute_anova_and_plot(df, value_col, group_col, alpha=0.05):
     )
     
     return fig, stats_dict
+
+
+def build_posthoc_table_component(tukey_summary, theme='light', alpha=0.05):
+    """
+    Builds an expandable/collapsible details section containing a Dash DataTable
+    with the Tukey HSD post-hoc pairwise comparisons, matching the Performance Evaluation design.
+    """
+    if not tukey_summary:
+        return html.Div()
+        
+    df_tukey = pd.DataFrame(tukey_summary)
+    if df_tukey.empty or 'group1' not in df_tukey.columns:
+        return html.Div()
+        
+    rows = []
+    sig_count = 0
+    total_count = len(df_tukey)
+    
+    for _, r in df_tukey.iterrows():
+        try:
+            p_val = float(r['p-adj'])
+        except (ValueError, TypeError):
+            p_val = 1.0
+            
+        p_str = f"{p_val:.4e}" if p_val < 0.0001 else f"{p_val:.4f}"
+        stars = "***" if p_val < 0.001 else ("**" if p_val < 0.01 else ("*" if p_val < 0.05 else "ns"))
+        is_rej = bool(r.get('reject', p_val < alpha))
+        if is_rej:
+            sig_count += 1
+            
+        try:
+            diff_val = f"{float(r['meandiff']):.4f}"
+        except:
+            diff_val = str(r.get('meandiff', ''))
+            
+        try:
+            ci_l = f"{float(r['lower']):.4f}"
+        except:
+            ci_l = str(r.get('lower', ''))
+            
+        try:
+            ci_u = f"{float(r['upper']):.4f}"
+        except:
+            ci_u = str(r.get('upper', ''))
+            
+        rows.append({
+            'group1': str(r['group1']),
+            'group2': str(r['group2']),
+            'meandiff': diff_val,
+            'p_adj': p_str,
+            'p_raw': p_val,
+            'ci_lower': ci_l,
+            'ci_upper': ci_u,
+            'reject': 'True' if is_rej else 'False',
+            'sig': stars
+        })
+        
+    is_dark = (theme == 'dark')
+    header_bg = '#383838' if is_dark else '#f8f9fa'
+    header_color = '#ffffff' if is_dark else '#212529'
+    cell_bg = '#2d2d2d' if is_dark else '#ffffff'
+    cell_color = '#e0e0e0' if is_dark else '#212529'
+    border_color = '#495057' if is_dark else '#dee2e6'
+    sig_bg = '#1e4620' if is_dark else '#d4edda'
+    sig_color = '#d4edda' if is_dark else '#155724'
+    summary_color = '#4fc3f7' if is_dark else '#0d6efd'
+    
+    table = dash_table.DataTable(
+        data=rows,
+        columns=[
+            {'name': 'Group 1', 'id': 'group1'},
+            {'name': 'Group 2', 'id': 'group2'},
+            {'name': 'Mean Diff', 'id': 'meandiff'},
+            {'name': f'p-adj (alpha = {alpha})', 'id': 'p_adj'},
+            {'name': 'CI Lower (95%)', 'id': 'ci_lower'},
+            {'name': 'CI Upper (95%)', 'id': 'ci_upper'},
+            {'name': 'Reject H0', 'id': 'reject'},
+            {'name': 'Sig.', 'id': 'sig'},
+        ],
+        sort_action='native',
+        page_size=15 if total_count > 15 else total_count,
+        style_table={'overflowX': 'auto', 'borderRadius': '6px'},
+        style_cell={
+            'textAlign': 'center',
+            'padding': '6px 10px',
+            'fontSize': '0.85em',
+            'fontFamily': 'inherit',
+            'backgroundColor': cell_bg,
+            'color': cell_color,
+            'border': f'1px solid {border_color}'
+        },
+        style_cell_conditional=[
+            {'if': {'column_id': 'group1'}, 'textAlign': 'left'},
+            {'if': {'column_id': 'group2'}, 'textAlign': 'left'}
+        ],
+        style_header={
+            'fontWeight': 'bold',
+            'backgroundColor': header_bg,
+            'color': header_color,
+            'border': f'1px solid {border_color}',
+            'textAlign': 'center'
+        },
+        style_data_conditional=[
+            {
+                'if': {'filter_query': '{reject} = True'},
+                'backgroundColor': sig_bg,
+                'color': sig_color,
+                'fontWeight': 'bold'
+            },
+            {
+                'if': {'filter_query': '{reject} = True', 'column_id': 'sig'},
+                'color': '#28a745' if not is_dark else '#4ade80',
+                'fontWeight': 'bold'
+            }
+        ]
+    )
+    
+    summary_text = f"Post-Hoc Results Table (Tukey HSD) - {sig_count}/{total_count} Significant Comparisons (p < {alpha})"
+    
+    return html.Details([
+        html.Summary(
+            summary_text,
+            style={
+                'cursor': 'pointer',
+                'fontWeight': 'bold',
+                'color': summary_color,
+                'marginTop': '12px',
+                'marginBottom': '6px',
+                'fontSize': '0.95em'
+            }
+        ),
+        html.Div(
+            table,
+            className="p-2 rounded mt-2 border" if not is_dark else "p-2 rounded mt-2 border border-secondary",
+            style={'backgroundColor': '#f8f9fa' if not is_dark else '#222222', 'overflowX': 'auto'}
+        )
+    ], className="mt-2")
